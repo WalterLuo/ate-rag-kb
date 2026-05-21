@@ -1,0 +1,126 @@
+# ATE RAG Knowledge Base Configuration
+
+# Data paths
+data:
+  raw_dir: "./data/raw"
+  processed_dir: "./data/processed"
+  markdown_dir: "./data/raw/markdown"
+  json_dir: "./data/raw/json"
+  assets_dir: "./data/raw/assets"
+  toc_tree: "./data/raw/toc_tree.json"
+  href_map: "./data/raw/href_map.json"
+
+# Embedding model configuration
+embedding:
+  model_name: "BAAI/bge-m3"
+  device: "auto"
+  ingest_device: "auto"
+  normalize_embeddings: true
+  batch_size: 8
+  max_seq_length: 512
+  cache_dir: "./embeddings/cache"
+  local_files_only: true
+  query_instruction: "Represent this sentence for searching relevant passages: "
+
+# Vector store configuration
+vector_store:
+  type: "qdrant"
+  host: "localhost"
+  port: 6333
+  collection_name: "ate_kb"
+  grpc_port: 6334
+  prefer_grpc: false
+  local_path: "./data/qdrant_storage"
+  use_local: true
+
+# Collection schema
+schema:
+  vector_size: 1024
+  distance: "Cosine"
+  payload_indexes:
+    - field: "platform"
+      type: "keyword"
+    - field: "doc_type"
+      type: "keyword"
+    - field: "toc_path"
+      type: "keyword"
+    - field: "chunk_type"
+      type: "keyword"
+    - field: "source_md"
+      type: "text"
+    - field: "doc_title"
+      type: "text"
+
+# Chunking configuration
+chunking:
+  strategies:
+    document:
+      enabled: true
+      max_length: 8000
+      overlap: 200
+    section:
+      enabled: true
+      max_length: 4000
+      overlap: 100
+    subsection:
+      enabled: true
+      max_length: 2000
+      overlap: 50
+    code_block:
+      enabled: true
+      max_length: 1500
+      overlap: 0
+    table:
+      enabled: true
+      max_length: 3000
+      overlap: 0
+  split_headings: ["h1", "h2", "h3", "h4"]
+
+# Retrieval configuration
+retrieval:
+  vector_search:
+    top_k: 20
+  bm25_search:
+    enabled: true
+    top_k: 20
+    k1: 1.5
+    b: 0.75
+  hybrid:
+    enabled: true
+    vector_weight: 0.7
+    bm25_weight: 0.3
+    final_top_k: 10
+  reranker:
+    enabled: true
+    model_name: "BAAI/bge-reranker-v2-m3"
+    top_k: 5
+    batch_size: 16
+  parent_child:
+    enabled: true
+    include_parent: true
+    include_siblings: true
+    include_children: false
+    max_siblings: 2
+  compression:
+    enabled: true
+    merge_adjacent: true
+    remove_duplicates: true
+    max_tokens: 4000
+
+# API server configuration
+api:
+  host: "0.0.0.0"
+  port: 8080
+  reload: false
+  workers: 1
+
+# Logging
+logging:
+  level: "INFO"
+  format: "json"
+
+# Claude Code integration
+claude_code:
+  skill_name: "ate-kb"
+  max_chunks_per_query: 8
+  enable_citations: true
