@@ -1,37 +1,43 @@
-# ate-rag-kb — ATE RAG Knowledge Base
+# ate-rag-kb — Developer Guide
 
 ## Project Goal
 
 Agentic RAG system for ATE (Automatic Test Equipment) test engineers. Ingests
 Markdown + JSON metadata, chunks with rich hierarchy, embeds with BAAI/bge-m3,
-stores in Qdrant, and exposes retrieval + Q&A via FastAPI. Designed for
-integration with Claude Code and other agentic tools.
+stores in Qdrant, and exposes retrieval + Q&A via FastAPI and MCP.
 
 ## Core Architecture
 
 ```
-Markdown + JSON  →  IngestionPipeline  →  Chunks  →  EmbeddingEncoder
-                                                          ↓
-FastAPI  ←  RetrievalPipeline  ←  QdrantVectorStore  ←  Vectors
-   │
-   └── /search      (basic semantic search)
-   └── /retrieve    (hybrid + rerank + parent-child + compression)
-   └── /ask         (retrieval + LLM synthesis + citations)
-   └── /related     (parent/sibling/children for a chunk)
-   └── /document    (all chunks for a source file)
+Markdown + JSON  ->  IngestionPipeline  ->  Chunks  ->  EmbeddingEncoder
+                                                            |
+                                                            v
+FastAPI / MCP  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
 ```
+
+FastAPI endpoints:
+- `/search` — basic semantic search
+- `/retrieve` — hybrid + rerank + parent-child + compression
+- `/ask` — retrieval + citations (no LLM synthesis in phase 1)
+- `/related` — parent/sibling/children for a chunk
+- `/document` — all chunks for a source file
+
+MCP tools (stdio transport):
+- `ate_kb.search`, `ate_kb.retrieve`, `ate_kb.ask`
+- `ate_kb.related`, `ate_kb.get_document`, `ate_kb.status`
 
 ## Directory Layout
 
 | Path | Purpose |
 |------|---------|
 | `configs/config.yaml` | Central configuration (paths, models, retrieval params) |
-| `src/ate_rag_kb/chunking/` | HierarchicalChunker: markdown → document/section/subsection/paragraph/code/table/image chunks |
+| `src/ate_rag_kb/chunking/` | HierarchicalChunker: markdown -> document/section/subsection/paragraph/code/table/image chunks |
 | `src/ate_rag_kb/embedding/` | EmbeddingEncoder: sentence-transformers wrapper (bge-m3) |
 | `src/ate_rag_kb/ingestion/` | IngestionPipeline + IncrementalIngestion (mtime-based change detection) |
 | `src/ate_rag_kb/retrieval/` | HybridRetriever (vector + BM25), Reranker (cross-encoder), ParentChildExpander, ContextCompressor |
 | `src/ate_rag_kb/vector_store/` | QdrantVectorStore wrapper + schema/index setup |
 | `src/ate_rag_kb/api/` | FastAPI app, routes, Pydantic models |
+| `src/ate_rag_kb/mcp/` | MCP server (stdio), tool handlers, context builder |
 | `src/ate_rag_kb/prompts/` | Prompt templates + Claude Code skill schema |
 | `src/ate_rag_kb/evaluation/` | EvalRunner, metrics, dataset loader, formatters |
 | `eval/` | Evaluation datasets, metrics, and reports |
@@ -57,6 +63,9 @@ uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental
 # Start API server
 uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 
+# Start MCP server
+uv run -m ate_rag_kb.cli.main mcp
+
 # Search from CLI
 uv run -m ate_rag_kb.cli.main search "timing set configuration" --top-k 5
 
@@ -70,10 +79,10 @@ uv run -m ate_rag_kb.cli.main status
 ## Key Flows
 
 ### Ingestion Flow
-1. `cli/main.py _cmd_ingest` → `IncrementalIngestion.run_incremental`
+1. `cli/main.py _cmd_ingest` -> `IncrementalIngestion.run_incremental`
 2. Scan for new/modified `.md` files (compares mtime against `data/processed/ingestion_state.json`)
-3. For each file: `_chunk_document` → `HierarchicalChunker.chunk`
-4. `_embed_and_upsert` → `EmbeddingEncoder.encode` → `QdrantVectorStore.upsert_chunks`
+3. For each file: `_chunk_document` -> `HierarchicalChunker.chunk`
+4. `_embed_and_upsert` -> `EmbeddingEncoder.encode` -> `QdrantVectorStore.upsert_chunks`
 5. Batch size defaults to 1000 chunks; memory errors trigger recursive halving
 
 ### Retrieval Flow
@@ -87,10 +96,17 @@ uv run -m ate_rag_kb.cli.main status
 5. Optional: `ContextCompressor.compress` (dedup, merge adjacent, token cap)
 
 ### /ask Flow
-1. `routes.ask` → `retriever.search` (NOT retrieve; no rerank/expand by default)
+1. `routes.ask` -> `retriever.search` (NOT retrieve; no rerank/expand by default)
 2. Convert chunks to `ChunkResult`
 3. Build `Citation` list from chunks
-4. **TODO**: Currently NO LLM synthesis. Answer generation should be added here.
+4. Phase 1: NO LLM synthesis. Returns raw chunks + citations for agent synthesis.
+
+### MCP Flow
+1. Agent sends JSON-RPC request via stdio
+2. `mcp/server.py` dispatches to `McpToolHandler`
+3. Handler calls `RetrievalPipeline` methods
+4. Results formatted by `ContextBuilder` into structured JSON
+5. Returned to agent as `TextContent`
 
 ## Configuration Notes
 
@@ -138,8 +154,10 @@ uv run -m ate_rag_kb.cli.main status
    pre-downloaded to `./embeddings/cache`. First-time setup requires internet.
 5. **Chunk ID determinism**: IDs are SHA256 hashes of source + title + suffix + content
    snippet. Changing chunking logic changes IDs, breaking incremental state.
+6. **MCP stdio transport**: Must not write to stdout except JSON-RPC messages. Use
+   logging (stderr) or structured logging for diagnostics.
 
-## Agent Rules
+## Agent Rules (for dev agents)
 
 When modifying code, prioritize:
 
@@ -153,6 +171,8 @@ When modifying code, prioritize:
    intentional.
 6. **Do not break the incremental ingestion contract** — chunk IDs must remain
    deterministic for the same input; state file format changes need migration.
+7. **MCP changes must not break FastAPI** — both share `RetrievalPipeline`. Do not
+   add MCP-specific logic into the pipeline; keep it in `mcp/tools.py`.
 
 ## Protected Directories
 
@@ -162,9 +182,9 @@ When modifying code, prioritize:
 - `embeddings/cache/` — Downloaded transformer models. Large; do not commit.
 - `eval/v1/` — Evaluation datasets. Version-controlled; do not overwrite without bumping version.
 
-## Recommended Next Tasks
+## Current Priority Tasks
 
-1. **Add LLM synthesis to `/ask`** — use `RETRIEVAL_PROMPT` template + Claude API.
-2. **Add docker-compose.yml** — define `qdrant` and `api` services for one-command startup.
-3. **Add GitHub Actions CI** — pytest → ruff → eval gate.
-4. **Expand eval dataset** — add more questions with expected_chunk_ids for finer-grained evaluation.
+1. **MCP server integration testing** — verify with Claude Code / Codex locally
+2. **Expand eval dataset** — add more questions; populate `expected_chunk_ids` after chunking is frozen
+3. **Add docker-compose.yml** — define `qdrant` and `api` services for one-command startup
+4. **Add GitHub Actions CI** — pytest -> ruff -> eval gate
