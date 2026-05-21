@@ -33,7 +33,7 @@ class IngestionPipeline:
         self.config = config
         self.encoder = encoder
         self.vector_store = vector_store
-        self.chunker = chunker or HierarchicalChunker()
+        self.chunker = chunker or HierarchicalChunker(config)
         self._href_to_node = self._build_href_index(toc_tree)
         self._href_to_abs_path = self._build_abs_path_index(href_map)
 

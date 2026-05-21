@@ -123,6 +123,23 @@ class QdrantVectorStore:
             return Chunk.from_payload(results[0].id, results[0].payload)
         return None
 
+    def get_by_ids(self, chunk_ids: list[str]) -> list[Chunk | None]:
+        """Fetch multiple chunks by ID in a single round-trip."""
+        if not chunk_ids:
+            return []
+        deduped_ids = list(dict.fromkeys(chunk_ids))
+        results = self.client.retrieve(
+            collection_name=self.collection_name,
+            ids=deduped_ids,
+            with_payload=True,
+        )
+        id_to_chunk = {
+            r.id: Chunk.from_payload(r.id, r.payload or {})
+            for r in results
+            if r.payload
+        }
+        return [id_to_chunk.get(cid) for cid in chunk_ids]
+
     def count(self) -> int:
         """Return total number of points in the collection."""
         return self.client.count(collection_name=self.collection_name).count

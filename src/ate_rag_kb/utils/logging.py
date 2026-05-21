@@ -17,7 +17,7 @@ def setup_logging(level: str = "INFO", fmt: str = "json") -> None:
     ]
 
     if fmt == "json":
-        formatter = structlog.dev.ConsoleRenderer(colors=False)
+        formatter = structlog.processors.JSONRenderer()
     else:
         formatter = structlog.dev.ConsoleRenderer(colors=True)
 

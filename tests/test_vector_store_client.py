@@ -39,7 +39,9 @@ class TestQdrantVectorStore:
         mock_point.id = "c1"
         mock_point.score = 0.95
         mock_point.payload = {"content": "hello", "chunk_type": "paragraph"}
-        mock_client.search.return_value = [mock_point]
+        mock_response = MagicMock()
+        mock_response.points = [mock_point]
+        mock_client.query_points.return_value = mock_response
 
         result = store.search([0.1] * 1024, top_k=1)
 
@@ -76,6 +78,44 @@ class TestQdrantVectorStore:
         result = store.count()
 
         assert result == 42
+
+    def test_get_by_ids_batch_fetch(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
+        mock_p1 = MagicMock()
+        mock_p1.id = "c1"
+        mock_p1.payload = {"content": "hello"}
+        mock_p2 = MagicMock()
+        mock_p2.id = "c2"
+        mock_p2.payload = {"content": "world"}
+        mock_client.retrieve.return_value = [mock_p1, mock_p2]
+
+        result = store.get_by_ids(["c1", "c2", "missing"])
+
+        assert len(result) == 3
+        assert result[0] is not None and result[0].id == "c1"
+        assert result[1] is not None and result[1].id == "c2"
+        assert result[2] is None
+        mock_client.retrieve.assert_called_once()
+        call_args = mock_client.retrieve.call_args
+        assert call_args.kwargs["ids"] == ["c1", "c2", "missing"]
+
+    def test_get_by_ids_empty_input(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
+        result = store.get_by_ids([])
+        assert result == []
+        mock_client.retrieve.assert_not_called()
+
+    def test_get_by_ids_deduplicates(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
+        mock_p1 = MagicMock()
+        mock_p1.id = "c1"
+        mock_p1.payload = {"content": "hello"}
+        mock_client.retrieve.return_value = [mock_p1]
+
+        result = store.get_by_ids(["c1", "c1"])
+
+        assert len(result) == 2
+        assert result[0].id == "c1"
+        assert result[1].id == "c1"
+        call_args = mock_client.retrieve.call_args
+        assert call_args.kwargs["ids"] == ["c1"]
 
     def test_scroll_returns_chunks_and_offset(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
         mock_point = MagicMock()

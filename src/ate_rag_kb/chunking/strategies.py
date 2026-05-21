@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
+from ate_rag_kb.utils.config import Config
 
 
 class HierarchicalChunker:
@@ -19,8 +20,44 @@ class HierarchicalChunker:
     _IMAGE_RE = re.compile(r"!\[(.*?)\]\((.+?)\)")
     _PARAGRAPH_RE = re.compile(r"\n\s*\n")
 
-    # Default paragraph split threshold
-    _MAX_PARAGRAPH_CHARS = 800
+    def __init__(self, config: Config | None = None) -> None:
+        cfg = config or Config({})
+        strategies = cfg.get("chunking.strategies", {})
+        self._limits: dict[ChunkType, dict[str, Any]] = {
+            ChunkType.DOCUMENT: strategies.get("document", {}),
+            ChunkType.SECTION: strategies.get("section", {}),
+            ChunkType.SUBSECTION: strategies.get("subsection", {}),
+            ChunkType.CODE_BLOCK: strategies.get("code_block", {}),
+            ChunkType.TABLE: strategies.get("table", {}),
+            ChunkType.PARAGRAPH: strategies.get("paragraph", {}),
+        }
+        section_max = self._limits.get(ChunkType.SECTION, {}).get("max_length", 4000)
+        self._para_threshold = cfg.get("chunking.paragraph_threshold", max(800, section_max // 5))
+
+    def _get_limit(self, chunk_type: ChunkType) -> tuple[int, int]:
+        """Return (max_length, overlap) for a chunk type."""
+        limits = self._limits.get(chunk_type, {})
+        defaults: dict[ChunkType, tuple[int, int]] = {
+            ChunkType.DOCUMENT: (8000, 200),
+            ChunkType.SECTION: (4000, 100),
+            ChunkType.SUBSECTION: (2000, 50),
+            ChunkType.CODE_BLOCK: (1500, 0),
+            ChunkType.TABLE: (3000, 0),
+            ChunkType.PARAGRAPH: (4000, 100),
+        }
+        default_max, default_overlap = defaults.get(chunk_type, (4000, 100))
+        return limits.get("max_length", default_max), limits.get("overlap", default_overlap)
+
+    @staticmethod
+    def _truncate_content(content: str, max_length: int) -> str:
+        """Truncate content at max_length, preferring paragraph boundary."""
+        if len(content) <= max_length:
+            return content
+        truncated = content[:max_length]
+        para_break = truncated.rfind("\n\n")
+        if para_break > max_length * 0.8:
+            return truncated[:para_break]
+        return truncated
 
     def chunk(self, text: str, metadata: dict[str, Any]) -> list[Chunk]:
         """Chunk markdown text into a hierarchical list of Chunk objects.
@@ -62,7 +99,7 @@ class HierarchicalChunker:
                 parent.child_ids = [*parent.child_ids, chunk.id]
 
             # Paragraph-level chunks for long sections
-            if len(section["body"]) > self._MAX_PARAGRAPH_CHARS:
+            if len(section["body"]) > self._para_threshold:
                 para_chunks = self._chunk_paragraphs(
                     section["body"], chunk, metadata, section
                 )
@@ -335,9 +372,11 @@ class HierarchicalChunker:
         chunk_id = self._make_id(
             metadata.get("source_md", ""), metadata.get("doc_title", ""), "doc", text[:200]
         )
+        max_len, _ = self._get_limit(ChunkType.DOCUMENT)
+        content = self._truncate_content(text, max_len)
         return Chunk(
             id=chunk_id,
-            content=text[:2000],
+            content=content,
             chunk_type=ChunkType.DOCUMENT,
             doc_title=metadata.get("doc_title", ""),
             source_md=metadata.get("source_md", ""),
@@ -365,9 +404,12 @@ class HierarchicalChunker:
             section["body"][:200],
         )
         base_path = self._base_toc_path(metadata)
+        raw_content = f"{section['title']}\n\n{section['body']}".strip()
+        max_len, _ = self._get_limit(chunk_type)
+        content = self._truncate_content(raw_content, max_len)
         return Chunk(
             id=chunk_id,
-            content=f"{section['title']}\n\n{section['body']}".strip(),
+            content=content,
             chunk_type=chunk_type,
             doc_title=metadata.get("doc_title", ""),
             section_title=section["title"] if level <= 2 else "",

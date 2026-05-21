@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from dataclasses import replace
+
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.utils.config import Config
 
@@ -66,11 +68,14 @@ class ContextCompressor:
                 and nxt.chunk_type == current.chunk_type
                 and len(current.content) + len(nxt.content) < 3000
             ):
-                current.content = current.content + "\n\n" + nxt.content
-                current.end_line = nxt.end_line
-                current.images = current.images + [i for i in nxt.images if i not in current.images]
-                current.tables = current.tables + [t for t in nxt.tables if t not in current.tables]
-                current.code_blocks = current.code_blocks + [c for c in nxt.code_blocks if c not in current.code_blocks]
+                current = replace(
+                    current,
+                    content=current.content + "\n\n" + nxt.content,
+                    end_line=nxt.end_line,
+                    images=[*current.images, *[i for i in nxt.images if i not in current.images]],
+                    tables=[*current.tables, *[t for t in nxt.tables if t not in current.tables]],
+                    code_blocks=[*current.code_blocks, *[c for c in nxt.code_blocks if c not in current.code_blocks]],
+                )
             else:
                 merged.append(current)
                 current = nxt

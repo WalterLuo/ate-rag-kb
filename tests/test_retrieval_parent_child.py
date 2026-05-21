@@ -13,11 +13,14 @@ from ate_rag_kb.retrieval.parent_child import ParentChildExpander
 class TestParentChildExpander:
     def test_expand_with_parent_and_siblings(self) -> None:
         store = MagicMock()
-        store.get_by_id.side_effect = lambda cid: {
-            "p1": Chunk(id="p1", content="Parent", chunk_type=ChunkType.SECTION),
-            "s1": Chunk(id="s1", content="Sib1", chunk_type=ChunkType.PARAGRAPH),
-            "s2": Chunk(id="s2", content="Sib2", chunk_type=ChunkType.PARAGRAPH),
-        }.get(cid)
+        store.get_by_ids.side_effect = lambda cids: [
+            {
+                "p1": Chunk(id="p1", content="Parent", chunk_type=ChunkType.SECTION),
+                "s1": Chunk(id="s1", content="Sib1", chunk_type=ChunkType.PARAGRAPH),
+                "s2": Chunk(id="s2", content="Sib2", chunk_type=ChunkType.PARAGRAPH),
+            }.get(cid)
+            for cid in cids
+        ]
 
         expander = ParentChildExpander()
         chunks = [
@@ -40,7 +43,7 @@ class TestParentChildExpander:
 
     def test_expand_deduplicates(self) -> None:
         store = MagicMock()
-        store.get_by_id.return_value = None
+        store.get_by_ids.return_value = []
 
         expander = ParentChildExpander()
         chunks = [
@@ -54,9 +57,12 @@ class TestParentChildExpander:
 
     def test_expand_with_children(self) -> None:
         store = MagicMock()
-        store.get_by_id.side_effect = lambda cid: {
-            "child1": Chunk(id="child1", content="Child1", chunk_type=ChunkType.PARAGRAPH),
-        }.get(cid)
+        store.get_by_ids.side_effect = lambda cids: [
+            {
+                "child1": Chunk(id="child1", content="Child1", chunk_type=ChunkType.PARAGRAPH),
+            }.get(cid)
+            for cid in cids
+        ]
 
         expander = ParentChildExpander()
         expander.include_children = True
@@ -79,9 +85,10 @@ class TestParentChildExpander:
 
     def test_expand_respects_max_siblings(self) -> None:
         store = MagicMock()
-        store.get_by_id.side_effect = lambda cid: Chunk(
-            id=cid, content="Sib", chunk_type=ChunkType.PARAGRAPH
-        )
+        store.get_by_ids.side_effect = lambda cids: [
+            Chunk(id=cid, content="Sib", chunk_type=ChunkType.PARAGRAPH)
+            for cid in cids
+        ]
 
         expander = ParentChildExpander()
         expander.max_siblings = 1

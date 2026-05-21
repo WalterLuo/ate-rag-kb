@@ -90,3 +90,56 @@ class TestHierarchicalChunker:
         s1, s2 = h2_sections
         assert s2.id in s1.sibling_ids
         assert s1.id in s2.sibling_ids
+
+    def test_document_chunk_respects_config_max_length(self) -> None:
+        from ate_rag_kb.utils.config import Config
+
+        config = Config({
+            "chunking": {
+                "strategies": {
+                    "document": {"max_length": 50, "overlap": 0},
+                }
+            }
+        })
+        chunker = HierarchicalChunker(config)
+        long_text = "A" * 200
+        result = chunker.chunk(long_text, metadata={"doc_title": "Long"})
+
+        doc_chunk = next(c for c in result if c.chunk_type == ChunkType.DOCUMENT)
+        assert len(doc_chunk.content) <= 50
+
+    def test_section_chunk_respects_config_max_length(self) -> None:
+        from ate_rag_kb.utils.config import Config
+
+        config = Config({
+            "chunking": {
+                "strategies": {
+                    "section": {"max_length": 30, "overlap": 0},
+                }
+            }
+        })
+        chunker = HierarchicalChunker(config)
+        text = "# Title\n\n" + "B" * 100
+        result = chunker.chunk(text, metadata={"doc_title": "LongSec"})
+
+        sec_chunk = next(c for c in result if c.chunk_type == ChunkType.SECTION)
+        assert len(sec_chunk.content) <= 30
+
+    def test_default_limits_without_config(self) -> None:
+        chunker = HierarchicalChunker()
+        assert chunker._get_limit(ChunkType.DOCUMENT) == (8000, 200)
+        assert chunker._get_limit(ChunkType.SECTION) == (4000, 100)
+        assert chunker._get_limit(ChunkType.SUBSECTION) == (2000, 50)
+
+    def test_truncate_content_prefers_paragraph_boundary(self) -> None:
+        chunker = HierarchicalChunker()
+        text = "Line1\n\nLine2\n\nLine3\n\nLine4"
+        result = HierarchicalChunker._truncate_content(text, 14)
+        # Should truncate at the paragraph boundary before 14 chars
+        assert result == "Line1\n\nLine2"
+
+    def test_truncate_content_no_boundary_falls_back_to_hard_limit(self) -> None:
+        chunker = HierarchicalChunker()
+        text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        result = HierarchicalChunker._truncate_content(text, 10)
+        assert result == "ABCDEFGHIJ"

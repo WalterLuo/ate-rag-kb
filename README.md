@@ -187,6 +187,24 @@ result = build_tool_result(
 )
 ```
 
+## Evaluation
+
+Run automated retrieval evaluation against a JSONL dataset:
+
+```bash
+python scripts/run_eval.py
+```
+
+This loads questions from `eval/v1/questions.jsonl`, runs them through the retrieval pipeline, and writes JSON + Markdown reports to `./reports/`. Metrics computed: hit@k, recall@k, MRR@k, source_precision@k.
+
+### Evaluation Dataset Format
+
+Each line in `eval/v1/questions.jsonl` is a JSON object:
+
+```json
+{"id": "q1", "query": "How to configure drive edge in TDC?", "expected_chunk_ids": ["c1"], "expected_source_mds": ["timing.md"], "category": "Timing"}
+```
+
 ## Project Structure
 
 ```
@@ -196,9 +214,14 @@ ate-rag-kb/
 ├── data/
 │   ├── raw/
 │   └── qdrant_storage/
+├── eval/
+│   └── v1/
+│       ├── manifest.json
+│       └── questions.jsonl
 ├── scripts/
 │   ├── ingest.py
-│   └── serve.py
+│   ├── serve.py
+│   └── run_eval.py
 ├── src/
 │   └── ate_rag_kb/
 │       ├── api/
@@ -208,6 +231,13 @@ ate-rag-kb/
 │       │   └── models.py
 │       ├── chunking/
 │       │   └── models.py
+│       ├── evaluation/
+│       │   ├── __init__.py
+│       │   ├── dataset_loader.py
+│       │   ├── formatters.py
+│       │   ├── metrics.py
+│       │   ├── models.py
+│       │   └── runner.py
 │       ├── prompts/
 │       │   ├── __init__.py
 │       │   ├── templates.py

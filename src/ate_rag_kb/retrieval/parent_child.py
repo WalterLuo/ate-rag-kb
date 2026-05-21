@@ -27,35 +27,53 @@ class ParentChildExpander:
         chunks: list[Chunk],
         vector_store: QdrantVectorStore,
     ) -> list[Chunk]:
-        """Expand chunks with related context."""
+        """Expand chunks with related context using batched fetches."""
         result_ids: set[str] = set()
         ordered: list[Chunk] = []
+
+        # First pass: add original chunks and collect related IDs
+        parent_ids: list[str] = []
+        sibling_ids: list[str] = []
+        child_ids: list[str] = []
 
         for chunk in chunks:
             if chunk.id not in result_ids:
                 ordered.append(chunk)
                 result_ids.add(chunk.id)
-
             if self.include_parent and chunk.parent_id:
-                parent = vector_store.get_by_id(chunk.parent_id)
-                if parent and parent.id not in result_ids:
+                parent_ids.append(chunk.parent_id)
+            if self.include_siblings:
+                sibling_ids.extend(chunk.sibling_ids[:self.max_siblings])
+            if self.include_children:
+                child_ids.extend(chunk.child_ids)
+
+        # Batch fetch all related chunks in a single round-trip per type
+        id_to_chunk: dict[str, Chunk] = {}
+        all_related_ids = list(dict.fromkeys(parent_ids + sibling_ids + child_ids))
+        if all_related_ids:
+            fetched = vector_store.get_by_ids(all_related_ids)
+            for cid, chunk in zip(all_related_ids, fetched):
+                if chunk is not None:
+                    id_to_chunk[cid] = chunk
+
+        # Second pass: append related chunks in original order
+        for chunk in chunks:
+            if self.include_parent and chunk.parent_id and chunk.parent_id in id_to_chunk:
+                parent = id_to_chunk[chunk.parent_id]
+                if parent.id not in result_ids:
                     ordered.append(parent)
                     result_ids.add(parent.id)
 
             if self.include_siblings:
                 for sid in chunk.sibling_ids[:self.max_siblings]:
-                    if sid not in result_ids:
-                        sibling = vector_store.get_by_id(sid)
-                        if sibling:
-                            ordered.append(sibling)
-                            result_ids.add(sid)
+                    if sid in id_to_chunk and sid not in result_ids:
+                        ordered.append(id_to_chunk[sid])
+                        result_ids.add(sid)
 
             if self.include_children:
                 for cid in chunk.child_ids:
-                    if cid not in result_ids:
-                        child = vector_store.get_by_id(cid)
-                        if child:
-                            ordered.append(child)
-                            result_ids.add(cid)
+                    if cid in id_to_chunk and cid not in result_ids:
+                        ordered.append(id_to_chunk[cid])
+                        result_ids.add(cid)
 
         return ordered

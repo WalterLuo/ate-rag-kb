@@ -55,6 +55,9 @@ data/raw/
 data/processed/
 data/qdrant_storage/
 
+# Embedding model cache
+embeddings/
+
 # Evaluation outputs
 evaluation_*.json
 

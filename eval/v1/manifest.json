@@ -1,0 +1,18 @@
+{
+  "version": "v1",
+  "description": "ATE RAG Knowledge Base retrieval evaluation dataset - 50 manually reviewed questions across 5 categories",
+  "created_at": "2026-05-21",
+  "question_count": 50,
+  "schema_version": "1.0",
+  "categories": [
+    "Timing / Timeset",
+    "Pattern",
+    "DPS / Power",
+    "PMU / Measurement",
+    "Flow / Test Program"
+  ],
+  "annotations": {
+    "expected_chunk_ids": "to be populated via manual annotation",
+    "expected_source_mds": "to be populated via manual annotation"
+  }
+}

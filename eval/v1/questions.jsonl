@@ -1,0 +1,50 @@
+{"id": "q001", "query": "How to configure drive edge in TDC?", "category": "Timing / Timeset", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q002", "query": "What is the difference between drive edge and compare edge?", "category": "Timing / Timeset", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q003", "query": "How to create a new timeset?", "category": "Timing / Timeset", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q004", "query": "How does edge placement work?", "category": "Timing / Timeset", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q005", "query": "What causes timing mismatch across sites?", "category": "Timing / Timeset", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q006", "query": "How to debug timing fail on high frequency pattern?", "category": "Timing / Timeset", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q007", "query": "How to apply different timing to different pin groups?", "category": "Timing / Timeset", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q008", "query": "What is waveform table in TDC?", "category": "Timing / Timeset", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q009", "query": "How to configure strobe edge?", "category": "Timing / Timeset", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q010", "query": "How to reuse timing sets between test methods?", "category": "Timing / Timeset", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q011", "query": "How to enable burst pattern mode?", "category": "Pattern", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q012", "query": "How does pattern looping work?", "category": "Pattern", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q013", "query": "How to debug pattern miscompare?", "category": "Pattern", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q014", "query": "How to load external pattern files?", "category": "Pattern", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q015", "query": "What causes pattern alignment failure?", "category": "Pattern", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q016", "query": "How to configure start label in pattern execution?", "category": "Pattern", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q017", "query": "How to stop pattern on first fail?", "category": "Pattern", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q018", "query": "How to debug vector mismatch?", "category": "Pattern", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q019", "query": "How to run pattern in single site only?", "category": "Pattern", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q020", "query": "What is the difference between burst and functional pattern?", "category": "Pattern", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q021", "query": "What does DPS alarm 2034 mean?", "category": "DPS / Power", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q022", "query": "How to configure voltage clamp?", "category": "DPS / Power", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q023", "query": "How to debug overcurrent issue?", "category": "DPS / Power", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q024", "query": "How to enable DPS sequencing?", "category": "DPS / Power", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q025", "query": "What is foldback protection?", "category": "DPS / Power", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q026", "query": "How to force voltage and measure current?", "category": "DPS / Power", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q027", "query": "Why does DPS trip during pattern execution?", "category": "DPS / Power", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q028", "query": "How to configure power up sequence?", "category": "DPS / Power", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q029", "query": "What causes unstable DPS measurement?", "category": "DPS / Power", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q030", "query": "How to set current limit in DPS?", "category": "DPS / Power", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q031", "query": "How to configure PMU force current mode?", "category": "PMU / Measurement", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q032", "query": "What is PMU measurement range?", "category": "PMU / Measurement", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q033", "query": "How to debug PMU saturation?", "category": "PMU / Measurement", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q034", "query": "How to perform leakage test?", "category": "PMU / Measurement", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q035", "query": "How to improve PMU accuracy?", "category": "PMU / Measurement", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q036", "query": "What causes unstable PMU readings?", "category": "PMU / Measurement", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q037", "query": "How to configure PMU averaging?", "category": "PMU / Measurement", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q038", "query": "How to perform continuity test?", "category": "PMU / Measurement", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q039", "query": "What is the difference between FVMI and FIMV?", "category": "PMU / Measurement", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q040", "query": "How to calibrate PMU channels?", "category": "PMU / Measurement", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q041", "query": "How does flow bypass work?", "category": "Flow / Test Program", "metadata": {"difficulty": "easy"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q042", "query": "How to run tests conditionally in flow?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q043", "query": "How to debug multisite flow issue?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q044", "query": "How to skip failing test items automatically?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q045", "query": "How to execute different flow per bin?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q046", "query": "What causes site desynchronization?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q047", "query": "How to debug flow jump issue?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q048", "query": "How to share variables between test methods?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q049", "query": "How to enable parallel test execution?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
+{"id": "q050", "query": "How to trace test item execution order?", "category": "Flow / Test Program", "metadata": {"difficulty": "medium"}, "expected_chunk_ids": [], "expected_source_mds": []}
