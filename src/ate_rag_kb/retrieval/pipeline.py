@@ -61,17 +61,13 @@ class RetrievalPipeline:
             chunks = await asyncio.to_thread(self.reranker.rerank, query, chunks)
 
         if expand_parents or expand_siblings:
-            original_parent = self.expander.include_parent
-            original_siblings = self.expander.include_siblings
-            self.expander.include_parent = expand_parents
-            self.expander.include_siblings = expand_siblings
-            try:
-                chunks = await asyncio.to_thread(
-                    self.expander.expand, chunks, self.vector_store
-                )
-            finally:
-                self.expander.include_parent = original_parent
-                self.expander.include_siblings = original_siblings
+            chunks = await asyncio.to_thread(
+                self.expander.expand,
+                chunks,
+                self.vector_store,
+                include_parent=expand_parents,
+                include_siblings=expand_siblings,
+            )
 
         if compress:
             chunks = await asyncio.to_thread(self.compressor.compress, chunks)
@@ -122,7 +118,31 @@ class RetrievalPipeline:
     async def collection_stats(self) -> dict[str, Any]:
         """Return collection statistics."""
         count = await asyncio.to_thread(self.vector_store.count)
+        vector_size = self.config.get("schema.vector_size", 0)
+        embedding_model = self.config.get("embedding.model_name", "")
+
+        platforms: set[str] = set()
+        doc_types: set[str] = set()
+        sample_limit = 1000
+        sample_chunks: list[Chunk] = []
+        try:
+            sample_chunks, _ = await asyncio.to_thread(
+                self.vector_store.scroll, limit=sample_limit
+            )
+            for chunk in sample_chunks:
+                if chunk.platform:
+                    platforms.add(chunk.platform)
+                if chunk.doc_type:
+                    doc_types.add(chunk.doc_type)
+        except Exception:
+            logger.exception("Failed to sample platforms/doc_types for stats")
+
         return {
             "collection_name": self.vector_store.collection_name,
             "total_chunks": count,
+            "vector_size": vector_size,
+            "embedding_model": embedding_model,
+            "platforms": sorted(platforms),
+            "doc_types": sorted(doc_types),
+            "sampled_chunks": len(sample_chunks),
         }

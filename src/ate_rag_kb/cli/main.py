@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 def _config_path() -> Path:
+    env_path = os.environ.get("CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
     return Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.utils.config import Config
@@ -26,8 +25,13 @@ class ParentChildExpander:
         self,
         chunks: list[Chunk],
         vector_store: QdrantVectorStore,
+        include_parent: bool | None = None,
+        include_siblings: bool | None = None,
     ) -> list[Chunk]:
         """Expand chunks with related context using batched fetches."""
+        include_parent = self.include_parent if include_parent is None else include_parent
+        include_siblings = self.include_siblings if include_siblings is None else include_siblings
+
         result_ids: set[str] = set()
         ordered: list[Chunk] = []
 
@@ -40,9 +44,9 @@ class ParentChildExpander:
             if chunk.id not in result_ids:
                 ordered.append(chunk)
                 result_ids.add(chunk.id)
-            if self.include_parent and chunk.parent_id:
+            if include_parent and chunk.parent_id:
                 parent_ids.append(chunk.parent_id)
-            if self.include_siblings:
+            if include_siblings:
                 sibling_ids.extend(chunk.sibling_ids[:self.max_siblings])
             if self.include_children:
                 child_ids.extend(chunk.child_ids)
@@ -52,19 +56,19 @@ class ParentChildExpander:
         all_related_ids = list(dict.fromkeys(parent_ids + sibling_ids + child_ids))
         if all_related_ids:
             fetched = vector_store.get_by_ids(all_related_ids)
-            for cid, chunk in zip(all_related_ids, fetched):
+            for cid, chunk in zip(all_related_ids, fetched, strict=False):
                 if chunk is not None:
                     id_to_chunk[cid] = chunk
 
         # Second pass: append related chunks in original order
         for chunk in chunks:
-            if self.include_parent and chunk.parent_id and chunk.parent_id in id_to_chunk:
+            if include_parent and chunk.parent_id and chunk.parent_id in id_to_chunk:
                 parent = id_to_chunk[chunk.parent_id]
                 if parent.id not in result_ids:
                     ordered.append(parent)
                     result_ids.add(parent.id)
 
-            if self.include_siblings:
+            if include_siblings:
                 for sid in chunk.sibling_ids[:self.max_siblings]:
                     if sid in id_to_chunk and sid not in result_ids:
                         ordered.append(id_to_chunk[sid])

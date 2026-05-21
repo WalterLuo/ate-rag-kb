@@ -16,6 +16,7 @@ def setup_logging(level: str = "INFO", fmt: str = "json") -> None:
         structlog.processors.TimeStamper(fmt="iso"),
     ]
 
+    formatter: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer
     if fmt == "json":
         formatter = structlog.processors.JSONRenderer()
     else:
@@ -39,6 +40,6 @@ def setup_logging(level: str = "INFO", fmt: str = "json") -> None:
 
     logging.basicConfig(
         format="%(message)s",
-        stream=sys.stdout,
+        stream=sys.stderr,
         level=getattr(logging, level.upper(), logging.INFO),
     )
