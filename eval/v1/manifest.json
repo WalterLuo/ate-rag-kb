@@ -12,7 +12,12 @@
     "Flow / Test Program"
   ],
   "annotations": {
-    "expected_chunk_ids": "to be populated via manual annotation",
-    "expected_source_mds": "to be populated via manual annotation"
+    "expected_chunk_ids": "empty — to be populated after chunking strategy is frozen",
+    "expected_source_mds": "backfilled from data/evaluation_50_questions.json (manual review)",
+    "backfilled_at": "2026-05-21"
+  },
+  "gates": {
+    "source_precision_at_5": 0.65,
+    "failed_count": 0
   }
 }
