@@ -132,6 +132,21 @@ async def _cmd_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_mcp(_args: argparse.Namespace) -> int:
+    config = get_config(_config_path())
+    setup_logging(config.get("logging.level", "INFO"), config.get("logging.format", "json"))
+
+    try:
+        from ate_rag_kb.mcp.server import run_mcp_server
+    except ImportError as exc:
+        logger.error("MCP server not available: %s", exc)
+        return 1
+
+    logger.info("Starting MCP server (stdio transport)")
+    await run_mcp_server(config)
+    return 0
+
+
 async def _async_main() -> int:
     parser = argparse.ArgumentParser(
         prog="ate-rag-kb",
@@ -164,6 +179,10 @@ async def _async_main() -> int:
     # status
     status_parser = subparsers.add_parser("status", help="Show collection statistics")
     status_parser.set_defaults(func=_cmd_status)
+
+    # mcp
+    mcp_parser = subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")
+    mcp_parser.set_defaults(func=_cmd_mcp)
 
     args = parser.parse_args()
     return await args.func(args)
