@@ -9,6 +9,41 @@ IDE.
 
 ---
 
+## Built-In Documents
+
+This repo ships with **pre-parsed TDC/SmarTest technical documentation**.
+You do not need to find, convert, or format any documents — they are already
+placed under `./data/raw/markdown/`.
+
+**Built-in coverage:**
+
+| Platform | Version | Content |
+|----------|---------|---------|
+| ADVANTEST V93000 | SmarTest 7.4.3 / 7.10.11 | PinConfig, Level, Timing, Test Flow, SmartRDI, TML, DPS, PMU, Digital, TMU, RF |
+
+**First-time setup (approx. 15-30 min):**
+
+```bash
+# 1. Install dependencies
+uv sync
+
+# 2. Download the embedding model (bge-m3, ~2.2 GB)
+#    Automatically cached to ./embeddings/cache/
+
+# 3. Ingest the built-in documents to build the vector database
+#    Vectors are stored in ./data/qdrant_storage/
+uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
+
+# 4. Start the MCP server and connect your agent
+uv run -m ate_rag_kb.cli.main mcp
+```
+
+> **Note:** The vector database (`./data/qdrant_storage/`) and embedding model
+> cache (`./embeddings/cache/`) are **not** committed to git due to their large
+> size. The ingestion step above is required once after cloning.
+
+---
+
 ## Who Is This For
 
 - Test engineers using Claude Code / OpenClaw / Codex / Cursor
@@ -22,7 +57,7 @@ IDE.
 # 1. Install dependencies
 uv sync
 
-# 2. Ingest your documents
+# 2. Ingest documents (built-in docs are already in ./data/raw/markdown)
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental
 
 # 3. Start the MCP server (for agent integration)
@@ -32,13 +67,13 @@ uv run -m ate_rag_kb.cli.main mcp
 uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 ```
 
-## Preparing Your Documents
+## Adding Your Own Documents
 
-Place Markdown files + JSON metadata under:
+If you have additional Markdown files + JSON metadata, place them under:
 
 ```
 data/raw/
-├── markdown/     # .md technical docs
+├── markdown/     # .md technical docs (built-in docs already here)
 ├── json/         # optional metadata sidecars
 └── assets/       # images, diagrams
 ```
