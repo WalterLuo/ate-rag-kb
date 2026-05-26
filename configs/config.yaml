@@ -18,7 +18,7 @@ embedding:
   normalize_embeddings: true
   batch_size: 8
   max_seq_length: 512
-  cache_dir: "./embeddings/cache"
+  cache_dir: "/Users/walter_luo/Project/ate-rag-kb/embeddings/cache"
   local_files_only: true
   query_instruction: "Represent this sentence for searching relevant passages: "
 

@@ -7,8 +7,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-# Use China mirror by default for HuggingFace downloads
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+# Force offline mode before any huggingface/transformers imports to prevent
+# network requests when local model cache is available.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ.pop("HF_ENDPOINT", None)
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -31,9 +34,6 @@ class EmbeddingEncoder:
         self.max_seq_length: int = cfg.get("embedding.max_seq_length", 8192)
         self.cache_dir: Path = Path(cfg.get("embedding.cache_dir", "./embeddings/cache"))
         self.local_files_only: bool = cfg.get("embedding.local_files_only", True)
-        if self.local_files_only:
-            os.environ.setdefault("HF_HUB_OFFLINE", "1")
-            os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         self.query_instruction: str = cfg.get(
             "embedding.query_instruction",
             "Represent this sentence for searching relevant passages: ",
@@ -55,12 +55,6 @@ class EmbeddingEncoder:
         if self._model is None:
             logger.info("Loading embedding model: %s on %s", self.model_name, self.device)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            if self.local_files_only:
-                os.environ.setdefault("HF_HUB_OFFLINE", "1")
-                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-                # Clear HF_ENDPOINT to ensure local cache lookup works regardless
-                # of which mirror was used during initial download.
-                os.environ.pop("HF_ENDPOINT", None)
             self._model = SentenceTransformer(
                 self.model_name,
                 device=self.device,
