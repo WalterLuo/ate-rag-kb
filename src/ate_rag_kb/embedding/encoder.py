@@ -50,13 +50,49 @@ class EmbeddingEncoder:
             return "mps"
         return "cpu"
 
+    def _resolve_local_model_path(self) -> str:
+        """Resolve a huggingface_hub cache entry to a local snapshot path.
+
+        When local_files_only is true, SentenceTransformer may still attempt
+        network calls to validate missing safetensors files. Loading directly
+        from the cached snapshot path bypasses those checks entirely.
+        """
+        if not self.local_files_only:
+            return self.model_name
+
+        # huggingface_hub cache layout:
+        #   cache_dir/models--{org}--{model}/snapshots/{commit_hash}/
+        safe_name = self.model_name.replace("/", "--")
+        cache_entry = self.cache_dir / f"models--{safe_name}"
+        snapshots_dir = cache_entry / "snapshots"
+
+        if not snapshots_dir.exists():
+            logger.warning(
+                "No local cache found for %s at %s; falling back to model name",
+                self.model_name,
+                cache_entry,
+            )
+            return self.model_name
+
+        # Pick the first snapshot that contains a config.json (valid model)
+        for snapshot in snapshots_dir.iterdir():
+            if snapshot.is_dir() and (snapshot / "config.json").exists():
+                logger.info("Using local snapshot: %s", snapshot)
+                return str(snapshot)
+
+        logger.warning(
+            "No valid snapshot found for %s; falling back to model name", self.model_name
+        )
+        return self.model_name
+
     @property
     def model(self) -> SentenceTransformer:
         if self._model is None:
             logger.info("Loading embedding model: %s on %s", self.model_name, self.device)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+            model_path = self._resolve_local_model_path()
             self._model = SentenceTransformer(
-                self.model_name,
+                model_path,
                 device=self.device,
                 cache_folder=str(self.cache_dir),
                 local_files_only=self.local_files_only,
