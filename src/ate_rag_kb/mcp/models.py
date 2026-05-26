@@ -110,7 +110,13 @@ class McpDocumentResult(BaseModel):
 
     source_md: str
     total: int
+    returned: int = 0
+    offset: int = 0
+    limit: int = 20
+    has_more: bool = False
+    next_offset: int | None = None
     chunks: list[McpChunkResult]
+    context_package: McpContextPackage | None = None
 
 
 class McpStatusResult(BaseModel):

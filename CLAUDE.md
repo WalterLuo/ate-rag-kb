@@ -26,6 +26,32 @@ MCP tools (stdio transport):
 - `ate_kb.search`, `ate_kb.retrieve`, `ate_kb.ask`
 - `ate_kb.related`, `ate_kb.get_document`, `ate_kb.status`
 
+## ATE KB Question Policy
+
+Engineers should ask domain questions directly. Agents must choose the retrieval
+strategy without asking the engineer to pick MCP, CLI, grep, or raw files.
+
+When the user asks any technical question about ATE documentation, SmarTest,
+TDC, V93000, pin configuration, timing, levels, patterns, DPS, PMU, test flow,
+tester behavior, command syntax, or API references:
+
+1. Use MCP tools first.
+2. Prefer `ate_kb.retrieve` for specific technical answers.
+3. Prefer `ate_kb.ask` for direct Q&A that needs citations.
+4. Use `ate_kb.get_document` only after relevant `source_md` files are
+   identified by `ate_kb.retrieve` or `ate_kb.ask`.
+5. Use `ate_kb.search` only for exploratory discovery or source-file location.
+6. Do not use `uv run -m ate_rag_kb.cli.main search`, shell grep, `rg`, or raw
+   markdown reads as the first step for ATE KB questions.
+7. Fall back to CLI/file search/manual reads only when MCP tools are unavailable,
+   fail, or return insufficient context.
+8. Cite `source_md`, `section_title`, and relevant command/document names in the
+   final answer.
+
+Default flow: user question -> `ate_kb.retrieve` or `ate_kb.ask` -> inspect
+`context_package` and citations -> `ate_kb.get_document` if full-document
+context is needed -> synthesize the answer.
+
 ## Directory Layout
 
 | Path | Purpose |
@@ -66,7 +92,7 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 # Start MCP server
 uv run -m ate_rag_kb.cli.main mcp
 
-# Search from CLI
+# Search from CLI (developer/debugging fallback; not the default agent path)
 uv run -m ate_rag_kb.cli.main search "timing set configuration" --top-k 5
 
 # Run retrieval eval

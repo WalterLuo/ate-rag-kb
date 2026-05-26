@@ -51,15 +51,26 @@ htmlcov/
 .DS_Store
 
 # Project data (generated / large files)
-data/raw/
 data/processed/
 data/qdrant_storage/
+data/qdrant_server/
+
+# Ignore raw data subdirs except built-in markdown docs
+data/raw/assets/
+data/raw/json/
+data/raw/*.json
+data/raw/igxl_extracted/
 
 # Embedding model cache
-embeddings/
+embeddings/cache/
 
 # Evaluation outputs
 evaluation_*.json
+reports/
+
+# Delivery artifacts
+*.tar.gz
+.mcp.json
 
 # Claude
 .claude/

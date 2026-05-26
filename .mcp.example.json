@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "ate-kb": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "-m",
+        "ate_rag_kb.cli.main",
+        "mcp"
+      ],
+      "env": {
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+      }
+    }
+  }
+}

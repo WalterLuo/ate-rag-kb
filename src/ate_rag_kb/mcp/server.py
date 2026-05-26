@@ -23,16 +23,20 @@ logger = logging.getLogger(__name__)
 
 _TOOL_DESCRIPTIONS: dict[str, str] = {
     "ate_kb.search": (
-        "Quick semantic search over the ATE knowledge base. "
-        "Use when exploring a topic or finding relevant source files."
+        "Exploratory semantic search over the ATE knowledge base. "
+        "Use for topic discovery or locating relevant source files; for "
+        "answering specific ATE technical questions, prefer ate_kb.retrieve "
+        "or ate_kb.ask."
     ),
     "ate_kb.retrieve": (
-        "Advanced retrieval with hybrid search, reranking, parent-child expansion, "
-        "and compression. Use when answering specific technical questions."
+        "Default MCP tool for answering specific ATE technical questions. "
+        "Uses hybrid search, reranking, parent-child expansion, and compression. "
+        "Use this before CLI search, shell grep/rg, or raw markdown reads."
     ),
     "ate_kb.ask": (
-        "Structured Q&A with citations and confidence scoring. "
-        "Returns grounded context package for agent synthesis."
+        "Default MCP tool for direct ATE Q&A with citations and confidence "
+        "scoring. Returns a grounded context package for agent synthesis. "
+        "Use this before CLI search, shell grep/rg, or raw markdown reads."
     ),
     "ate_kb.related": (
         "Get parent, sibling, and child chunks for a given chunk ID. "
@@ -40,7 +44,8 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
     "ate_kb.get_document": (
         "Retrieve all chunks for a source markdown file. "
-        "Use when reading a complete document or API reference."
+        "Use after ate_kb.retrieve or ate_kb.ask identifies a relevant "
+        "source_md and full-document context is needed."
     ),
     "ate_kb.status": (
         "Check knowledge base health and collection statistics. "

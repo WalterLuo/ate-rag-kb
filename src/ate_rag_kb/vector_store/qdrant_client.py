@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
+
+# Prevent httpx from routing localhost traffic through a system proxy.
+_no_proxy = os.environ.get("NO_PROXY", "")
+os.environ["NO_PROXY"] = ",".join(
+    filter(None, [*_no_proxy.split(","), "localhost", "127.0.0.1"])
+)
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, ScoredPoint
@@ -22,10 +29,14 @@ class QdrantVectorStore:
     def __init__(self, config: Config | None = None) -> None:
         cfg = config or Config({})
         self.collection_name: str = cfg.get("vector_store.collection_name", "ate_kb")
-        self.use_local: bool = cfg.get("vector_store.use_local", True)
+        self.use_local: bool = cfg.get("vector_store.use_local", False)
         self.local_path: Path = Path(cfg.get("vector_store.local_path", "./data/qdrant_storage"))
+        url: str | None = cfg.get("vector_store.url")
 
-        if self.use_local:
+        if url:
+            self.client = QdrantClient(url=url)
+            logger.info("Initialized Qdrant server at %s", url)
+        elif self.use_local:
             self.local_path.mkdir(parents=True, exist_ok=True)
             self.client = QdrantClient(path=str(self.local_path))
             logger.info("Initialized local Qdrant at %s", self.local_path)

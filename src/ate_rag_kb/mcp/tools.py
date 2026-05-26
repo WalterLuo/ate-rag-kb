@@ -174,6 +174,26 @@ _GET_DOCUMENT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Source markdown file name (e.g., '118727.md')",
         },
+        "limit": {
+            "type": "integer",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of chunks to return",
+        },
+        "offset": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Offset from which to start returning chunks",
+        },
+        "max_tokens": {
+            "type": "integer",
+            "default": 4000,
+            "minimum": 500,
+            "maximum": 16000,
+            "description": "Approximate token budget for context_package",
+        },
     },
     "required": ["source_md"],
 }
@@ -317,6 +337,7 @@ class McpToolHandler:
         include_parent = args.get("include_parent", True)
         include_siblings = args.get("include_siblings", True)
         include_children = args.get("include_children", False)
+        max_siblings = args.get("max_siblings", 2)
 
         relations = await self.pipeline.get_related(chunk_id)
 
@@ -324,11 +345,12 @@ class McpToolHandler:
         if include_parent and relations.get("parent"):
             parent = _chunk_to_mcp(relations["parent"], score=1.0)
 
-        siblings = [
-            _chunk_to_mcp(chunk, score=1.0)
-            for chunk in relations.get("siblings", [])
-            if include_siblings
-        ]
+        siblings: list[Any] = []
+        if include_siblings:
+            siblings = [
+                _chunk_to_mcp(chunk, score=1.0)
+                for chunk in relations.get("siblings", [])[:max_siblings]
+            ]
         children = [
             _chunk_to_mcp(chunk, score=1.0)
             for chunk in relations.get("children", [])
@@ -343,15 +365,37 @@ class McpToolHandler:
         )
 
     async def handle_get_document(self, args: dict[str, Any]) -> McpDocumentResult:
-        """Handle ate_kb.get_document."""
+        """Handle ate_kb.get_document with pagination."""
         source_md = args["source_md"]
-        chunks = await self.pipeline.get_document(source_md)
-        results = [_chunk_to_mcp(chunk, score=1.0) for chunk in chunks]
+        limit = args.get("limit", 20)
+        offset = args.get("offset", 0)
+        max_tokens = args.get("max_tokens", 4000)
+
+        all_chunks = await self.pipeline.get_document(source_md)
+        total = len(all_chunks)
+
+        paginated = all_chunks[offset:offset + limit]
+        results = [_chunk_to_mcp(chunk, score=1.0) for chunk in paginated]
+
+        has_more = (offset + limit) < total
+        next_offset = offset + limit if has_more else None
+
+        context_package = None
+        if results:
+            context_package = build_context_package(
+                [(c, 1.0) for c in paginated], max_tokens=max_tokens
+            )
 
         return McpDocumentResult(
             source_md=source_md,
-            total=len(results),
+            total=total,
+            returned=len(results),
+            offset=offset,
+            limit=limit,
+            has_more=has_more,
+            next_offset=next_offset,
             chunks=results,
+            context_package=context_package,
         )
 
     async def handle_status(self, _args: dict[str, Any]) -> McpStatusResult:

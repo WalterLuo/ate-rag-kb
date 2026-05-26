@@ -19,8 +19,21 @@ logger = logging.getLogger(__name__)
 def _config_path() -> Path:
     env_path = os.environ.get("CONFIG_PATH")
     if env_path:
-        return Path(env_path)
-    return Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
+        path = Path(env_path)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"CONFIG_PATH is set to '{env_path}' but the file does not exist. "
+                "Please verify the path or unset CONFIG_PATH to use the default."
+            )
+        return path
+
+    default = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
+    if not default.exists():
+        raise FileNotFoundError(
+            f"Default config not found at {default}. "
+            "Please run from the project root or set CONFIG_PATH."
+        )
+    return default
 
 
 def _load_json_if_exists(path: Path) -> dict | None:

@@ -58,6 +58,9 @@ class EmbeddingEncoder:
             if self.local_files_only:
                 os.environ.setdefault("HF_HUB_OFFLINE", "1")
                 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+                # Clear HF_ENDPOINT to ensure local cache lookup works regardless
+                # of which mirror was used during initial download.
+                os.environ.pop("HF_ENDPOINT", None)
             self._model = SentenceTransformer(
                 self.model_name,
                 device=self.device,

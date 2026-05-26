@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ class Config:
             raise KeyError(key)
         return val
 
-    def section(self, name: str) -> "Config":
+    def section(self, name: str) -> Config:
         """Return a subsection as a new Config."""
         return Config(self._data.get(name, {}))
 
@@ -42,15 +43,37 @@ class Config:
 _config_instance: Config | None = None
 
 
+def _resolve_config_path(path: Path | str | None = None) -> Path:
+    """Resolve config path from argument, CONFIG_PATH env var, or default."""
+    if path is not None:
+        return Path(path)
+
+    env_path = os.environ.get("CONFIG_PATH")
+    if env_path:
+        resolved = Path(env_path)
+        if not resolved.exists():
+            raise FileNotFoundError(
+                f"CONFIG_PATH is set to '{env_path}' but the file does not exist. "
+                "Please verify the path or unset CONFIG_PATH to use the default."
+            )
+        return resolved
+
+    default = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
+    if not default.exists():
+        raise FileNotFoundError(
+            f"Default config not found at {default}. "
+            "Please run from the project root or set CONFIG_PATH."
+        )
+    return default
+
+
 def get_config(path: Path | str | None = None) -> Config:
     """Load or return cached config."""
     global _config_instance
     if _config_instance is not None:
         return _config_instance
-    if path is None:
-        path = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
-    path = Path(path)
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    resolved = _resolve_config_path(path)
+    data = yaml.safe_load(resolved.read_text(encoding="utf-8"))
     _config_instance = Config(data)
     return _config_instance
 

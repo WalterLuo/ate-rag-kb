@@ -127,3 +127,27 @@ class TestQdrantVectorStore:
 
         assert len(chunks) == 1
         assert offset == "next_offset"
+
+    def test_init_with_url_uses_server_client(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
+            with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
+                from ate_rag_kb.utils.config import Config
+                QdrantVectorStore(Config({"vector_store": {"url": "http://qdrant:6333"}}))
+
+        qdrant_cls.assert_called_once_with(url="http://qdrant:6333")
+
+    def test_init_with_use_local_uses_path_client(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
+            with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
+                from ate_rag_kb.utils.config import Config
+                QdrantVectorStore(Config({"vector_store": {"use_local": True, "local_path": "/tmp/qdrant_test"}}))
+
+        qdrant_cls.assert_called_once_with(path="/tmp/qdrant_test")
+
+    def test_init_without_url_or_local_uses_host_port(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
+            with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
+                from ate_rag_kb.utils.config import Config
+                QdrantVectorStore(Config({"vector_store": {"host": "qdrant", "port": 9999}}))
+
+        qdrant_cls.assert_called_once_with(host="qdrant", port=9999)

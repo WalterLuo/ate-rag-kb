@@ -9,7 +9,12 @@ import structlog
 
 
 def setup_logging(level: str = "INFO", fmt: str = "json") -> None:
-    """Configure structlog and stdlib logging."""
+    """Configure structlog and stdlib logging.
+
+    All output is directed to stderr so that stdout remains clean. This is
+    essential for MCP stdio transport, where stdout must contain only JSON-RPC
+    protocol messages.
+    """
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
@@ -38,8 +43,22 @@ def setup_logging(level: str = "INFO", fmt: str = "json") -> None:
         cache_logger_on_first_use=True,
     )
 
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stderr,
-        level=getattr(logging, level.upper(), logging.INFO),
-    )
+    # Force stderr-only logging. Remove any existing stdout handlers to prevent
+    # MCP stdio transport pollution.
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(logging.Formatter("%(message)s"))
+    root.addHandler(stderr_handler)
+
+    # Scrub stdout handlers from named loggers that may have been configured by
+    # imported libraries before this function was called.
+    for logger_name in list(logging.root.manager.loggerDict):
+        logger = logging.getLogger(logger_name)
+        for handler in logger.handlers[:]:
+            if getattr(handler, "stream", None) is sys.stdout:
+                logger.removeHandler(handler)

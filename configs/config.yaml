@@ -23,15 +23,18 @@ embedding:
   query_instruction: "Represent this sentence for searching relevant passages: "
 
 # Vector store configuration
+# Server mode (default): set use_local=false and provide url.
+# Local mode (single-process dev only): set use_local=true.
 vector_store:
   type: "qdrant"
+  url: "http://localhost:6333"
   host: "localhost"
   port: 6333
   collection_name: "ate_kb"
   grpc_port: 6334
   prefer_grpc: false
   local_path: "./data/qdrant_storage"
-  use_local: true
+  use_local: false
 
 # Collection schema
 schema:

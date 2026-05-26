@@ -10,6 +10,48 @@ The ATE KB exposes 6 tools via MCP (Model Context Protocol). Your agent can
 search, retrieve, ask, and browse technical documentation with full citation
 support.
 
+## Qdrant Server Setup (Required)
+
+The default configuration uses **Qdrant server mode** (`url: http://localhost:6333`).
+You must start Qdrant **before** ingesting documents or running MCP/API.
+
+```bash
+# Docker Compose (recommended)
+docker compose up -d qdrant
+
+# Or docker run
+docker run -d -p 6333:6333 -p 6334:6334 \
+  -v $(pwd)/data/qdrant_server:/qdrant/storage \
+  qdrant/qdrant:latest
+```
+
+After Qdrant is running, ingest documents:
+
+```bash
+uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
+```
+
+Then verify:
+
+```bash
+uv run -m ate_rag_kb.cli.main status
+```
+
+### Local Mode (Not Recommended for Multi-Process)
+
+For single-process debugging only, set `use_local: true` in
+`configs/config.yaml`:
+
+```yaml
+vector_store:
+  use_local: true
+  local_path: "./data/qdrant_storage"
+```
+
+> **Warning:** Local mode locks the storage directory. Running MCP + CLI + API
+> concurrently will trigger `portalocker.AlreadyLocked`. Use server mode for
+> any real workflow.
+
 ## Claude Code Configuration
 
 ### Option 1: MCP (Recommended)
@@ -94,17 +136,57 @@ configure it similarly to Claude Code:
 }
 ```
 
+## Beta Validation
+
+Before onboarding engineers, complete the formal validation steps:
+
+- [Agent E2E Validation](agent_e2e_validation.md) — confirm MCP discovery, tool
+  calls, citations, and pagination
+- [Beta Checklist](beta_checklist.md) — 10-question trial with pass/fail criteria
+
+Quick-start MCP config:
+
+```bash
+cp .mcp.example.json .mcp.json
+# Replace /path/to/ate-rag-kb with your absolute project path
+```
+
 ## Agent Usage Rules
 
 When using ATE KB tools, follow these rules:
 
+### 0. Default Contract
+
+Engineers should ask ATE domain questions directly. The agent must choose the
+retrieval path and should not ask the engineer whether to use MCP, CLI, grep, or
+raw markdown files.
+
+For any question about ATE documentation, SmarTest, TDC, V93000, pin
+configuration, timing, levels, patterns, DPS, PMU, test flow, tester behavior,
+command syntax, or API references:
+
+- Use MCP tools first.
+- Prefer `ate_kb.retrieve` for specific technical answers.
+- Prefer `ate_kb.ask` for direct Q&A that needs citations.
+- Use `ate_kb.get_document` only after relevant `source_md` files are identified.
+- Use `ate_kb.search` only for exploratory discovery or source-file location.
+- Do not use `uv run -m ate_rag_kb.cli.main search`, shell grep, `rg`, or manual
+  raw markdown reads as the first step.
+- Fall back to CLI/file reads only when MCP tools are unavailable, fail, or
+  return insufficient context.
+
 ### 1. Tool Selection
 
-- Use `ate_kb.search` for quick lookups ("find docs about timing sets")
-- Use `ate_kb.retrieve` for deep research ("explain edge placement with examples")
+- Use `ate_kb.retrieve` as the default tool for specific ATE technical questions
 - Use `ate_kb.ask` for direct Q&A ("how do I configure drive edge?")
-- Use `ate_kb.related` when a chunk is relevant but incomplete
-- Use `ate_kb.get_document` to read full API references
+- Use `ate_kb.search` for quick exploratory lookups ("find docs about timing sets")
+- Use `ate_kb.related` when a chunk is relevant but incomplete.
+  Control sibling volume with `max_siblings` (default 2, max 10) to keep
+  responses focused.
+- Use `ate_kb.get_document` to read full API references after source discovery.
+  This tool supports `limit`, `offset`, and `max_tokens`. For large documents,
+  prefer small `limit` values (e.g. 20) and page through chunks rather than
+  fetching the entire document at once.
 - Use `ate_kb.status` to verify KB health before querying
 
 ### 2. Citation Requirements
@@ -150,7 +232,9 @@ When answering questions about:
 - Test flows and test programs
 - API references
 
-ALWAYS use ate_kb.retrieve first to get grounded context. Then synthesize
+ALWAYS use MCP first. Use ate_kb.retrieve or ate_kb.ask to get grounded
+context before answering. Do not start with CLI search, grep, rg, or manual
+markdown reads unless MCP tools are unavailable or insufficient. Then synthesize
 your answer, citing the source_md and section_title for every claim.
 
 If the retrieved context is insufficient or low-confidence (score < 0.5),

@@ -8,13 +8,14 @@ import pytest
 
 from ate_rag_kb.mcp.server import McpServerApp, run_mcp_server
 from ate_rag_kb.mcp.tools import TOOL_SCHEMAS
+from ate_rag_kb.utils.config import Config
 
 pytest.importorskip("mcp")
 
 
 @pytest.fixture
 def mock_config():
-    return {"vector_store.collection_name": "test_kb"}
+    return Config({"vector_store": {"collection_name": "test_kb"}})
 
 
 @pytest.fixture
