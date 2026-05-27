@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from ate_rag_kb.chunking.models import Chunk, ChunkType
 from ate_rag_kb.retrieval.compression import ContextCompressor
 

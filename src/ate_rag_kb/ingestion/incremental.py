@@ -5,11 +5,9 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.ingestion.pipeline import IngestionPipeline
-from ate_rag_kb.utils.config import Config
 
 logger = logging.getLogger(__name__)
 

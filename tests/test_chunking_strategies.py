@@ -132,14 +132,12 @@ class TestHierarchicalChunker:
         assert chunker._get_limit(ChunkType.SUBSECTION) == (2000, 50)
 
     def test_truncate_content_prefers_paragraph_boundary(self) -> None:
-        chunker = HierarchicalChunker()
         text = "Line1\n\nLine2\n\nLine3\n\nLine4"
         result = HierarchicalChunker._truncate_content(text, 14)
         # Should truncate at the paragraph boundary before 14 chars
         assert result == "Line1\n\nLine2"
 
     def test_truncate_content_no_boundary_falls_back_to_hard_limit(self) -> None:
-        chunker = HierarchicalChunker()
         text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         result = HierarchicalChunker._truncate_content(text, 10)
         assert result == "ABCDEFGHIJ"

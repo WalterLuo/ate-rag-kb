@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from ate_rag_kb.chunking.models import Chunk, ChunkType
 
 
@@ -80,7 +78,7 @@ class TestChunk:
 
 class TestChunkRelationships:
     def test_parent_child_ids_round_trip(self) -> None:
-        parent = Chunk(id="p1", content="Parent", chunk_type=ChunkType.DOCUMENT)
+        _ = Chunk(id="p1", content="Parent", chunk_type=ChunkType.DOCUMENT)
         child = Chunk(
             id="c1",
             content="Child",

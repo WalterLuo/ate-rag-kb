@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from ate_rag_kb.utils.paths import resolve_path
 
 

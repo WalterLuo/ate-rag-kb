@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import numpy as np
 from rank_bm25 import BM25Okapi
 
 from ate_rag_kb.chunking.models import Chunk
@@ -64,7 +63,7 @@ class HybridRetriever:
         bm25 = BM25Okapi(tokenized_corpus, k1=self.k1, b=self.b)
         scores = bm25.get_scores(self._tokenize(query))
 
-        scored = list(zip(candidates, scores))
+        scored = list(zip(candidates, scores, strict=True))
         scored.sort(key=lambda x: x[1], reverse=True)
         return [c for c, _ in scored[:self.bm25_top_k]]
 

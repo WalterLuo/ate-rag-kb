@@ -95,7 +95,7 @@ class Chunk:
         }
 
     @classmethod
-    def from_payload(cls, chunk_id: str, payload: dict[str, Any]) -> "Chunk":
+    def from_payload(cls, chunk_id: str, payload: dict[str, Any]) -> Chunk:
         """Reconstruct from Qdrant payload."""
         return cls(
             id=chunk_id,

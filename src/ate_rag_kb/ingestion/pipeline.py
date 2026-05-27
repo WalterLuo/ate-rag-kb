@@ -141,7 +141,7 @@ class IngestionPipeline:
         try:
             texts = [c.content for c in chunks]
             embeddings = self.encoder.encode(texts)
-            for chunk, emb in zip(chunks, embeddings):
+            for chunk, emb in zip(chunks, embeddings, strict=False):
                 chunk.embedding = emb.tolist()
             self.vector_store.upsert_chunks(chunks)
         except RuntimeError as exc:

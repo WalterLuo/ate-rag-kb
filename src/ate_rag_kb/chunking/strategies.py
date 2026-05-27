@@ -525,5 +525,5 @@ class HierarchicalChunker:
 
     def _make_id(self, source_md: str, title: str, suffix: str, content_snippet: str) -> str:
         """Deterministic SHA256-based chunk ID."""
-        raw = f"{source_md}::{title}::{suffix}::{content_snippet}".encode("utf-8")
+        raw = f"{source_md}::{title}::{suffix}::{content_snippet}".encode()
         return hashlib.sha256(raw).hexdigest()[:32]

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-
 from dataclasses import replace
 
 from ate_rag_kb.chunking.models import Chunk

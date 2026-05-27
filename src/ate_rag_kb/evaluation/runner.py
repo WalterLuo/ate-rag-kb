@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.evaluation.metrics import (

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from ate_rag_kb.chunking.models import Chunk, ChunkType
-from ate_rag_kb.evaluation.formatters import format_json, format_markdown, write_json, write_markdown
+from ate_rag_kb.evaluation.formatters import (
+    format_json,
+    format_markdown,
+    write_json,
+    write_markdown,
+)
 from ate_rag_kb.evaluation.models import EvalQuestion, EvalReport, QuestionFailure, QuestionResult
 
 

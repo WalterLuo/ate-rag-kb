@@ -13,12 +13,12 @@ os.environ["NO_PROXY"] = ",".join(
     filter(None, [*_no_proxy.split(","), "localhost", "127.0.0.1"])
 )
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, ScoredPoint
+from qdrant_client import QdrantClient  # noqa: E402
+from qdrant_client.models import PointStruct  # noqa: E402
 
-from ate_rag_kb.chunking.models import Chunk
-from ate_rag_kb.utils.config import Config
-from ate_rag_kb.vector_store.schema import build_filter, create_collection, ensure_collection
+from ate_rag_kb.chunking.models import Chunk  # noqa: E402
+from ate_rag_kb.utils.config import Config  # noqa: E402
+from ate_rag_kb.vector_store.schema import build_filter, ensure_collection  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

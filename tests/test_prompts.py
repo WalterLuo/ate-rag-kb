@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ate_rag_kb.prompts.claude_code import build_tool_result, CLAUDE_CODE_TOOLS
+from ate_rag_kb.prompts.claude_code import CLAUDE_CODE_TOOLS, build_tool_result
 from ate_rag_kb.prompts.templates import get_prompt
 
 
