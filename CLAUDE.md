@@ -26,6 +26,13 @@ MCP tools (stdio transport):
 - `ate_kb.search`, `ate_kb.retrieve`, `ate_kb.ask`
 - `ate_kb.related`, `ate_kb.get_document`, `ate_kb.status`
 
+Current beta status:
+- First recorded 10-question trial: 9/10 pass
+- Q2 ARRAY citation regression: code-level fix and MCP tests added
+- Q1/Q3/Q5 completeness criteria: documented in beta checklists
+- MCP `get_document`: true paged backend path implemented
+- Next validation step: restart agent/MCP server and run `docs/beta_retest_10q.md`
+
 ## ATE KB Question Policy
 
 Engineers should ask domain questions directly. Agents must choose the retrieval
@@ -134,6 +141,10 @@ uv run -m ate_rag_kb.cli.main status
 4. Results formatted by `ContextBuilder` into structured JSON
 5. Returned to agent as `TextContent`
 
+`ate_kb.get_document` should call `RetrievalPipeline.get_document_page()` with
+`limit` and `offset`; do not reintroduce full-document fetch-then-slice behavior
+in MCP handlers.
+
 ## Configuration Notes
 
 - `configs/config.yaml` is the single source of truth.
@@ -210,7 +221,7 @@ When modifying code, prioritize:
 
 ## Current Priority Tasks
 
-1. **MCP server integration testing** — verify with Claude Code / Codex locally
-2. **Expand eval dataset** — add more questions; populate `expected_chunk_ids` after chunking is frozen
-3. **Add docker-compose.yml** — define `qdrant` and `api` services for one-command startup
-4. **Add GitHub Actions CI** — pytest -> ruff -> eval gate
+1. **Run beta retest** — restart the agent/MCP server and execute `docs/beta_retest_10q.md`
+2. **Record retest outcome** — update `docs/beta_test_report_10q.md` from 9/10 to the new result
+3. **Expand eval dataset** — add the real 10 beta questions after the retest stabilizes
+4. **Add CI gate** — pytest -> ruff -> retrieval eval gate

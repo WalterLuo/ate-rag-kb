@@ -2,6 +2,11 @@
 
 Use this checklist when onboarding engineers to the ATE RAG Knowledge Base.
 
+Current status: beta is ready for engineer handoff. The first recorded run
+passed 9/10 questions; the priority retest for questions 1-5 passed after the
+ARRAY citation, expected-answer coverage, and paginated document retrieval
+fixes. Retest evidence is recorded in `docs/10q_retest.csv`.
+
 ---
 
 ## A. Environment Preparation
@@ -29,41 +34,58 @@ Use this checklist when onboarding engineers to the ATE RAG Knowledge Base.
 
 ## C. Basic Query Validation
 
-Ask the agent the following 10 questions. For each, verify:
+Ask the agent the following 10 beta trial questions. These are real engineer
+questions from the first recorded beta run. For each, verify:
 
 1. The agent used an MCP tool
 2. The answer is relevant
 3. The answer includes `source_md`
 4. The answer includes `section_title` or `doc_title`
 5. No obvious hallucination
+6. The answer covers the required key points when listed below
 
 ### Questions
 
-1. How to configure drive edge in TDC?
-2. What is the difference between drive edge and compare edge?
-3. How to create a new timeset?
-4. How to enable burst pattern mode?
-5. How to debug pattern miscompare?
-6. What does DPS alarm 2034 mean?
-7. How to configure voltage clamp?
-8. How to configure PMU force current mode?
-9. How does flow bypass work?
-10. How to share variables between test methods?
+1. smt7中，如何在测试代码中通过代码的方式写limit
+2. smt7中ARRAY在代码中的作用是什么
+3. smt7中test suite的site control都有什么用处
+4. smt7中port pin的用处是什么
+5. smt7中timing文件都包含哪些内容？可以以哪种文件格式被使用
+6. smt7中RDI_Configure文件中都有哪些配置，每个配置都是什么意思
+7. smt7中 change device的edit device中的各项设置都有什么用处
+8. smt7中test flow的都有哪些flags，每个flags的配置有什么作用
+9. smt7中timing diagram怎么使用
+10. smt7中，level eqnset里可以对dps pin做哪些配置
+
+### Required Key Points
+
+| # | Required coverage |
+|---|-------------------|
+| 1 | Cite `29504.md` / `120084.md` when available. Include `LIMIT(TM::COMPARE opl, DOUBLE low, TM::COMPARE oph, DOUBLE high)`, comparison operators such as `TM::GT` / `TM::GE` / `TM::LT` / `TM::LE` / `TM::NA`, and code-level usage. |
+| 2 | Cite ARRAY sources such as `130224.md` (`Array in MTL`) and `102025.md` (`APG program file syntax`). Do not pass if the answer has no citation. |
+| 3 | Cite Site Match / site control sources such as `21615.md`. Explain ON, OFF, AUTO, successive starts, simultaneous starts, and shared analog/digital module behavior. |
+| 4 | Explain the relationship between ports, pins, multi-port timing, and multi-clock-domain use. |
+| 5 | Cite timing-file sources such as `101980.md`. Cover device cycles, edges, waveforms, clocks, equation set, timing set, spec set, wavetable, and file forms such as `.tim`, `.wvt`, `.eqn`, `.ac_spec`. |
+| 6 | For large RDI documents, use `ate_kb.get_document` pagination instead of one full-document call. |
+| 7 | For large technology-file documents, use `ate_kb.get_document` pagination and cite the exact source document. |
+| 8 | Cover the main testflow flags and cite each major source or the testflow flag index document. |
+| 9 | Cover timing diagram opening/use, display modes, resolution modes, axis behavior, and signal display rules with citations. |
+| 10 | Cover DPS pin configuration fields from the level / DPS setup source and cite the source document. |
 
 ### Checklist
 
 | # | Question | MCP Used | Relevant | `source_md` | `section_title` | No Hallucination | Pass |
 |---|----------|----------|----------|-------------|-----------------|------------------|------|
-| 1 | How to configure drive edge in TDC? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 2 | What is the difference between drive edge and compare edge? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 3 | How to create a new timeset? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 4 | How to enable burst pattern mode? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 5 | How to debug pattern miscompare? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 6 | What does DPS alarm 2034 mean? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 7 | How to configure voltage clamp? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 8 | How to configure PMU force current mode? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 9 | How does flow bypass work? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 10 | How to share variables between test methods? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 1 | smt7中，如何在测试代码中通过代码的方式写limit | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 2 | smt7中ARRAY在代码中的作用是什么 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 3 | smt7中test suite的site control都有什么用处 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 4 | smt7中port pin的用处是什么 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 5 | smt7中timing文件都包含哪些内容？可以以哪种文件格式被使用 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 6 | smt7中RDI_Configure文件中都有哪些配置，每个配置都是什么意思 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 7 | smt7中 change device的edit device中的各项设置都有什么用处 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 8 | smt7中test flow的都有哪些flags，每个flags的配置有什么作用 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 9 | smt7中timing diagram怎么使用 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 10 | smt7中，level eqnset里可以对dps pin做哪些配置 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 
 ---
 
@@ -73,6 +95,14 @@ Ask the agent the following 10 questions. For each, verify:
 - [ ] Agent can call `get_document` and uses a `limit` parameter
 - [ ] Response includes `has_more` and `next_offset`
 - [ ] Agent does **not** fetch the entire large document in a single call
+
+Use these large-document checks:
+
+| Source | Topic | Required behavior |
+|--------|-------|-------------------|
+| `146692.md` | RDI_Configure file | Fetch with `limit` and continue by `offset` only as needed |
+| `13920.md` | Using the Timing Diagram Tool | Do not fetch the whole document in one call |
+| `49363_2.md` | Technology file for a device | Use pagination and cite exact sections |
 
 ---
 
@@ -109,9 +139,16 @@ Record any failures here:
 
 Beta is **approved** when all of the following are met:
 
-- [ ] At least 8 out of 10 questions produce usable answers
-- [ ] Every usable answer includes proper citations (`source_md`, `section_title`)
+- [ ] All 10 questions produce usable answers
+- [ ] Every answer includes proper citations (`source_md`, `section_title`)
+- [ ] Q2 ARRAY includes citations and no longer fails for `no_citation`
+- [ ] Q1 / Q3 / Q5 cover the required key points listed above
 - [ ] No serious hallucinations observed
 - [ ] MCP tool calls are stable (no repeated JSON-RPC errors)
 - [ ] `get_document` never returns an oversized payload
 - [ ] Any failures are documented in the Failure Log above
+
+For the first recorded beta trial result, see
+[Beta 10-Question Trial Report](beta_test_report_10q.md).
+For the post-fix retest procedure, see
+[Beta 10-Question Retest Plan](beta_retest_10q.md).

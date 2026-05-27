@@ -214,6 +214,15 @@ Expected results:
 - Response contains `has_more` and `next_offset`
 - Agent does **not** fetch the entire document in one call
 
+Repeat the same pagination behavior with at least one large source discovered
+from beta testing:
+
+| Source | Topic | Expected behavior |
+|--------|-------|-------------------|
+| `146692.md` | RDI_Configure file | Use `limit` and continue with `offset=next_offset` only as needed |
+| `13920.md` | Using the Timing Diagram Tool | Do not fetch the whole document in one call |
+| `49363_2.md` | Technology file for a device | Cite exact sections after paginated reads |
+
 ---
 
 ### Step 6 — Low-Confidence / No-Result Test
@@ -246,6 +255,13 @@ Beta is considered **ready** when **all** of the following are true:
 | 5 | `get_document` is called with `limit` and returns `has_more` / `next_offset` |
 | 6 | No hallucination on out-of-domain or low-confidence queries |
 | 7 | No JSON-RPC parse errors in MCP stdout |
+| 8 | The 10-question beta checklist passes with citations for every answer |
+
+The first recorded beta trial is summarized in
+[Beta 10-Question Trial Report](beta_test_report_10q.md). Use that report as
+the baseline for Q2 ARRAY citation regression and Q1/Q3/Q5 completeness checks.
+For the exact post-fix retest flow, use
+[Beta 10-Question Retest Plan](beta_retest_10q.md).
 
 ---
 

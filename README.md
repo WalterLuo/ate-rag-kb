@@ -154,6 +154,16 @@ Before using the KB with real engineers, run:
 
 1. [Agent E2E Validation](docs/agent_e2e_validation.md) — step-by-step verification
 2. [Beta Checklist](docs/beta_checklist.md) — 10-question trial with pass criteria
+3. [Beta 10-Question Trial Report](docs/beta_test_report_10q.md) — first recorded
+   engineer-facing trial result
+4. [Beta 10-Question Retest Plan](docs/beta_retest_10q.md) — post-fix retest
+   procedure
+
+Current beta status: ready for engineer handoff. The first recorded trial
+passed 9/10 questions. After the ARRAY citation fix, expected-answer checklist
+updates, and paginated `get_document` implementation, the first five priority
+questions were retested and passed; evidence is recorded in
+[docs/10q_retest.csv](docs/10q_retest.csv).
 
 Copy the example MCP config before starting:
 
@@ -219,7 +229,9 @@ All tools return structured JSON with `source_md`, `doc_title`,
 
 `ate_kb.get_document` supports pagination (`limit`, `offset`) and a
 `max_tokens` budget. Agents should prefer small `limit` values (e.g. 20) and
-page through large documents rather than fetching all chunks at once.
+page through large documents rather than fetching all chunks at once. The MCP
+handler uses a paged retrieval path internally, so large documents do not need
+to be loaded in full for the first page.
 
 ## Evaluation
 

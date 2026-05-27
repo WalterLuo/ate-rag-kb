@@ -16,7 +16,7 @@ test flow, tester behavior, command syntax, or API references:
 4. Use `ate_kb.get_document` only after relevant `source_md` files are
    identified by `ate_kb.retrieve` or `ate_kb.ask`. Prefer pagination
    (`limit`, `offset`) for large documents rather than fetching all chunks
-   at once.
+   at once. Use small limits such as 10 or 20 for large references.
 5. Use `ate_kb.search` only for exploratory discovery or when locating source
    files.
 6. Do not use `uv run -m ate_rag_kb.cli.main search`, shell `grep`, `rg`, or
@@ -40,3 +40,15 @@ User asks ATE question
 
 The CLI search command is a developer/debugging fallback. It returns only a
 short content preview and should not be treated as the normal agent interface.
+
+## Beta Retest Policy
+
+The current beta acceptance flow is documented in:
+
+- `docs/beta_checklist_CN.md`
+- `docs/beta_test_report_10q.md`
+- `docs/beta_retest_10q.md`
+
+For ARRAY questions, verify that final answers cite ARRAY-specific sources such
+as `20847.md`, `130224.md`, or `102025.md`. For large documents, verify that
+the agent uses `ate_kb.get_document` with explicit `limit` / `offset`.

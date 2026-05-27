@@ -143,6 +143,10 @@ Before onboarding engineers, complete the formal validation steps:
 - [Agent E2E Validation](agent_e2e_validation.md) — confirm MCP discovery, tool
   calls, citations, and pagination
 - [Beta Checklist](beta_checklist.md) — 10-question trial with pass/fail criteria
+- [Beta 10-Question Trial Report](beta_test_report_10q.md) — first recorded
+  engineer-facing trial result and follow-up acceptance gaps
+- [Beta 10-Question Retest Plan](beta_retest_10q.md) — post-fix retest flow
+  for Q2 ARRAY, Q1/Q3/Q5 completeness, and pagination
 
 Quick-start MCP config:
 
@@ -188,6 +192,13 @@ command syntax, or API references:
   prefer small `limit` values (e.g. 20) and page through chunks rather than
   fetching the entire document at once.
 - Use `ate_kb.status` to verify KB health before querying
+
+Large documents observed during beta validation include `146692.md`
+(`RDI_Configure file`), `13920.md` (`Using the Timing Diagram Tool`), and
+`49363_2.md` (`Technology file for a device`). These should be read through
+pagination, not as single full-document payloads. MCP `ate_kb.get_document`
+uses a paged backend path; agents should still pass explicit `limit` and
+`offset` values so the response stays focused.
 
 ### 2. Citation Requirements
 

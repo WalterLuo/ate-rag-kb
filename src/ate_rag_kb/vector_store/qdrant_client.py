@@ -151,6 +151,10 @@ class QdrantVectorStore:
         }
         return [id_to_chunk.get(cid) for cid in chunk_ids]
 
-    def count(self) -> int:
+    def count(self, filters: dict[str, Any] | None = None) -> int:
         """Return total number of points in the collection."""
-        return self.client.count(collection_name=self.collection_name).count
+        qdrant_filter = build_filter(filters) if filters else None
+        return self.client.count(
+            collection_name=self.collection_name,
+            count_filter=qdrant_filter,
+        ).count

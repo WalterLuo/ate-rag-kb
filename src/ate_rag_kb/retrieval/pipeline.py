@@ -115,6 +115,44 @@ class RetrievalPipeline:
             offset = next_offset
         return all_chunks
 
+    async def get_document_page(
+        self,
+        source_md: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Return one numeric page of chunks for a source markdown file."""
+        filters = {"source_md": source_md}
+        total = await asyncio.to_thread(self.vector_store.count, filters)
+        target_count = max(0, offset) + max(1, limit) + 1
+
+        fetched: list[Chunk] = []
+        qdrant_offset: str | None = None
+        while len(fetched) < target_count:
+            batch_limit = min(100, target_count - len(fetched))
+            chunks, next_offset = await asyncio.to_thread(
+                self.vector_store.scroll,
+                filters=filters,
+                limit=batch_limit,
+                offset=qdrant_offset,
+            )
+            fetched.extend(chunks)
+            if not next_offset or not chunks:
+                break
+            qdrant_offset = next_offset
+
+        page_chunks = fetched[offset:offset + limit]
+        has_more = offset + len(page_chunks) < total
+        next_numeric_offset = offset + len(page_chunks) if has_more else None
+
+        return {
+            "chunks": page_chunks,
+            "total": total,
+            "returned": len(page_chunks),
+            "has_more": has_more,
+            "next_offset": next_numeric_offset,
+        }
+
     async def collection_stats(self) -> dict[str, Any]:
         """Return collection statistics."""
         count = await asyncio.to_thread(self.vector_store.count)

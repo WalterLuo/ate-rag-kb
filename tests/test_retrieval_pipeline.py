@@ -15,15 +15,17 @@ class TestRetrievalPipeline:
     @pytest.fixture
     def pipeline(self) -> RetrievalPipeline:
         cfg = Config({})
-        with patch("ate_rag_kb.retrieval.pipeline.EmbeddingEncoder"):
-            with patch("ate_rag_kb.retrieval.pipeline.QdrantVectorStore") as mock_vs:
-                with patch("ate_rag_kb.retrieval.pipeline.HybridRetriever"):
-                    with patch("ate_rag_kb.retrieval.pipeline.Reranker"):
-                        with patch("ate_rag_kb.retrieval.pipeline.ParentChildExpander"):
-                            with patch("ate_rag_kb.retrieval.pipeline.ContextCompressor"):
-                                p = RetrievalPipeline(cfg)
-                                p.vector_store = mock_vs.return_value
-                                yield p
+        with (
+            patch("ate_rag_kb.retrieval.pipeline.EmbeddingEncoder"),
+            patch("ate_rag_kb.retrieval.pipeline.QdrantVectorStore") as mock_vs,
+            patch("ate_rag_kb.retrieval.pipeline.HybridRetriever"),
+            patch("ate_rag_kb.retrieval.pipeline.Reranker"),
+            patch("ate_rag_kb.retrieval.pipeline.ParentChildExpander"),
+            patch("ate_rag_kb.retrieval.pipeline.ContextCompressor"),
+        ):
+            p = RetrievalPipeline(cfg)
+            p.vector_store = mock_vs.return_value
+            yield p
 
     @pytest.mark.asyncio
     async def test_search(self, pipeline: RetrievalPipeline) -> None:
@@ -84,6 +86,48 @@ class TestRetrievalPipeline:
         ])
         docs = await pipeline.get_document("doc.md")
         assert len(docs) == 2
+
+    @pytest.mark.asyncio
+    async def test_get_document_page_fetches_only_requested_window(self, pipeline: RetrievalPipeline) -> None:
+        c1 = Chunk(id="c1", content="a", chunk_type=ChunkType.PARAGRAPH)
+        c2 = Chunk(id="c2", content="b", chunk_type=ChunkType.PARAGRAPH)
+        c3 = Chunk(id="c3", content="c", chunk_type=ChunkType.PARAGRAPH)
+        pipeline.vector_store.count = MagicMock(return_value=10)
+        pipeline.vector_store.scroll = MagicMock(return_value=([c1, c2, c3], "qdrant-next"))
+
+        page = await pipeline.get_document_page("doc.md", limit=2, offset=0)
+
+        assert page["chunks"] == [c1, c2]
+        assert page["total"] == 10
+        assert page["returned"] == 2
+        assert page["has_more"] is True
+        assert page["next_offset"] == 2
+        pipeline.vector_store.scroll.assert_called_once_with(
+            filters={"source_md": "doc.md"},
+            limit=3,
+            offset=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_document_page_skips_offset_without_fetching_full_document(self, pipeline: RetrievalPipeline) -> None:
+        skipped = Chunk(id="c0", content="skip", chunk_type=ChunkType.PARAGRAPH)
+        c1 = Chunk(id="c1", content="a", chunk_type=ChunkType.PARAGRAPH)
+        c2 = Chunk(id="c2", content="b", chunk_type=ChunkType.PARAGRAPH)
+        pipeline.vector_store.count = MagicMock(return_value=3)
+        pipeline.vector_store.scroll = MagicMock(return_value=([skipped, c1, c2], None))
+
+        page = await pipeline.get_document_page("doc.md", limit=2, offset=1)
+
+        assert page["chunks"] == [c1, c2]
+        assert page["total"] == 3
+        assert page["returned"] == 2
+        assert page["has_more"] is False
+        assert page["next_offset"] is None
+        pipeline.vector_store.scroll.assert_called_once_with(
+            filters={"source_md": "doc.md"},
+            limit=4,
+            offset=None,
+        )
 
     @pytest.mark.asyncio
     async def test_collection_stats(self, pipeline: RetrievalPipeline) -> None:

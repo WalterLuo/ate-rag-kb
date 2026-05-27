@@ -2,6 +2,10 @@
 
 工程师试用 ATE RAG 知识库时的逐项检查表。
 
+当前状态：Beta 已可交付给工程师继续试用。第一次真实试用通过 9/10；在修复
+ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5 个重点问题已复测
+通过。复测证据记录在 `docs/10q_retest.csv`。
+
 ---
 
 ## A. 环境准备
@@ -29,41 +33,57 @@
 
 ## C. 基础查询验证
 
-向 agent 提出以下 10 个问题，每个问题检查：
+向 agent 提出以下 10 个 Beta 试用问题。这些问题来自第一次真实工程师试用记录。每个问题检查：
 
 1. Agent 使用了 MCP 工具
 2. 回答内容相关
 3. 回答包含 `source_md`
 4. 回答包含 `section_title` 或 `doc_title`
 5. 没有明显幻觉
+6. 如果下方列出了必答关键点，回答必须覆盖这些关键点
 
 ### 问题列表
 
-1. How to configure drive edge in TDC?
-2. What is the difference between drive edge and compare edge?
-3. How to create a new timeset?
-4. How to enable burst pattern mode?
-5. How to debug pattern miscompare?
-6. What does DPS alarm 2034 mean?
-7. How to configure voltage clamp?
-8. How to configure PMU force current mode?
-9. How does flow bypass work?
-10. How to share variables between test methods?
+1. smt7中，如何在测试代码中通过代码的方式写limit
+2. smt7中ARRAY在代码中的作用是什么
+3. smt7中test suite的site control都有什么用处
+4. smt7中port pin的用处是什么
+5. smt7中timing文件都包含哪些内容？可以以哪种文件格式被使用
+6. smt7中RDI_Configure文件中都有哪些配置，每个配置都是什么意思
+7. smt7中 change device的edit device中的各项设置都有什么用处
+8. smt7中test flow的都有哪些flags，每个flags的配置有什么作用
+9. smt7中timing diagram怎么使用
+10. smt7中，level eqnset里可以对dps pin做哪些配置
+
+### 必答关键点
+
+| 序号 | 必须覆盖的内容 |
+|------|----------------|
+| 1 | 尽量引用 `29504.md` / `120084.md`。必须包含 `LIMIT(TM::COMPARE opl, DOUBLE low, TM::COMPARE oph, DOUBLE high)`、`TM::GT` / `TM::GE` / `TM::LT` / `TM::LE` / `TM::NA` 等比较符，以及代码级使用方式。 |
+| 2 | 必须引用 ARRAY 相关来源，例如 `130224.md`（`Array in MTL`）和 `102025.md`（`APG program file syntax`）。没有引用不能通过。 |
+| 3 | 必须引用 Site Match / site control 相关来源，例如 `21615.md`。需要解释 ON、OFF、AUTO、依次启动、同步启动，以及 shared analog/digital module 对默认行为的影响。 |
+| 4 | 需要说明 port、pin、multi-port timing、多时钟域测试之间的关系。 |
+| 5 | 尽量引用 `101980.md` 等 timing file 来源。必须覆盖 device cycles、edges、waveforms、clocks、equation set、timing set、spec set、wavetable，以及 `.tim`、`.wvt`、`.eqn`、`.ac_spec` 等文件形式。 |
+| 6 | 对 RDI_Configure 这类大文档，必须用 `ate_kb.get_document` 分页读取，不能一次性读取全文。 |
+| 7 | 对 technology file 这类大文档，必须用 `ate_kb.get_document` 分页读取，并引用具体来源。 |
+| 8 | 需要覆盖主要 testflow flags，并引用 flag 主文档或各 flag 子文档。 |
+| 9 | 需要覆盖 timing diagram 的打开/使用方式、显示模式、分辨率模式、坐标轴行为和信号显示规则，并给出引用。 |
+| 10 | 需要覆盖 level / DPS setup 文档中 DPS pin 可配置字段，并引用来源。 |
 
 ### 检查表
 
 | 序号 | 问题 | 使用 MCP | 内容相关 | 含 source_md | 含 section_title | 无幻觉 | 通过 |
 |------|------|----------|----------|--------------|------------------|--------|------|
-| 1 | How to configure drive edge in TDC? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 2 | What is the difference between drive edge and compare edge? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 3 | How to create a new timeset? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 4 | How to enable burst pattern mode? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 5 | How to debug pattern miscompare? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 6 | What does DPS alarm 2034 mean? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 7 | How to configure voltage clamp? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 8 | How to configure PMU force current mode? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 9 | How does flow bypass work? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 10 | How to share variables between test methods? | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 1 | smt7中，如何在测试代码中通过代码的方式写limit | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 2 | smt7中ARRAY在代码中的作用是什么 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 3 | smt7中test suite的site control都有什么用处 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 4 | smt7中port pin的用处是什么 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 5 | smt7中timing文件都包含哪些内容？可以以哪种文件格式被使用 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 6 | smt7中RDI_Configure文件中都有哪些配置，每个配置都是什么意思 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 7 | smt7中 change device的edit device中的各项设置都有什么用处 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 8 | smt7中test flow的都有哪些flags，每个flags的配置有什么作用 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 9 | smt7中timing diagram怎么使用 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 10 | smt7中，level eqnset里可以对dps pin做哪些配置 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
 
 ---
 
@@ -73,6 +93,14 @@
 - [ ] Agent 能调用 `get_document` 并使用 `limit` 参数
 - [ ] 返回结果包含 `has_more` 和 `next_offset`
 - [ ] Agent 不会一次性读取整篇大文档
+
+使用以下大文档进行分页验证：
+
+| Source | 主题 | 要求 |
+|--------|------|------|
+| `146692.md` | RDI_Configure file | 使用 `limit` 读取，只在需要时继续按 `offset` 翻页 |
+| `13920.md` | Using the Timing Diagram Tool | 不允许一次性读取全文 |
+| `49363_2.md` | Technology file for a device | 使用分页并引用具体 section |
 
 ---
 
@@ -109,9 +137,16 @@
 
 满足以下全部条件时，Beta 试用通过：
 
-- [ ] 10 个问题中至少 8 个产生可用回答
-- [ ] 每个可用回答都包含规范引用（`source_md`、`section_title`）
+- [ ] 10 个问题全部产生可用回答
+- [ ] 每个回答都包含规范引用（`source_md`、`section_title`）
+- [ ] Q2 ARRAY 已包含引用，不再出现 `no_citation`
+- [ ] Q1 / Q3 / Q5 覆盖上方列出的必答关键点
 - [ ] 未观察到严重幻觉
 - [ ] MCP 工具调用稳定（无频繁 JSON-RPC 错误）
 - [ ] `get_document` 未返回超大 payload
 - [ ] 所有失败案例已记录在上方的失败日志中
+
+第一次真实 Beta 试用结果见
+[Beta 10-Question Trial Report](beta_test_report_10q.md)。
+修复后的复测流程见
+[Beta 10-Question Retest Plan](beta_retest_10q.md)。
