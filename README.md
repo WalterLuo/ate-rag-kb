@@ -30,8 +30,8 @@ uv sync
 # 2. Start Qdrant server (see Qdrant Server Setup below)
 docker compose up -d qdrant
 
-# 3. Download the embedding model (bge-m3, ~2.2 GB)
-#    Automatically cached to ./embeddings/cache/
+# 3. Download the embedding + reranker models on first use
+#    Automatically cached to ./embeddings/cache/ unless ATE_KB_MODEL_CACHE is set
 
 # 4. Ingest the built-in documents into Qdrant
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
@@ -40,9 +40,9 @@ uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
 uv run -m ate_rag_kb.cli.main mcp
 ```
 
-> **Note:** The embedding model cache (`./embeddings/cache/`) is **not**
-> committed to git due to its large size. The ingestion step is required once
-> after cloning.
+> **Note:** The model cache (`./embeddings/cache/`) is **not** committed to git
+> due to its large size. The ingestion step is required once after cloning,
+> unless you restore a prepared Qdrant snapshot or `data/qdrant_server/` package.
 >
 > **Server mode is the default.** By default the KB connects to
 > `http://localhost:6333` (Qdrant server). Local file mode (`./data/qdrant_storage/`)
@@ -75,6 +75,44 @@ docker run -d -p 6333:6333 -p 6334:6334 \
 
 Qdrant data is persisted to `./data/qdrant_server/` (separate from the legacy
 local-mode `./data/qdrant_storage/` to avoid lock conflicts).
+
+## Model Cache and Offline Mode
+
+The default config allows first-time online model downloads:
+
+```yaml
+embedding:
+  cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
+  local_files_only: false
+```
+
+This downloads and reuses:
+
+- `BAAI/bge-m3` for embeddings
+- `BAAI/bge-reranker-v2-m3` for cross-encoder reranking
+
+Set a shared or external cache directory when useful:
+
+```bash
+export ATE_KB_MODEL_CACHE=/path/to/ate-kb-model-cache
+```
+
+Windows PowerShell:
+
+```powershell
+$env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
+```
+
+For fully offline engineer deployments, prepare the cache on a networked
+machine, copy it to the target machine, then set:
+
+```yaml
+embedding:
+  cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
+  local_files_only: true
+```
+
+Offline mode fails fast with a clear error if either model cache is missing.
 
 ### Local Mode (Single-Process Dev Only)
 

@@ -54,6 +54,20 @@ class TestConfig:
 
         assert config.get("level") == "INFO"
 
+    def test_get_expands_environment_variable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ATE_KB_MODEL_CACHE", "/tmp/ate-models")
+        config = Config({"embedding": {"cache_dir": "${ATE_KB_MODEL_CACHE}"}})
+
+        assert config.get("embedding.cache_dir") == "/tmp/ate-models"
+
+    def test_get_expands_environment_variable_with_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ATE_KB_MODEL_CACHE", raising=False)
+        config = Config({"embedding": {"cache_dir": "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"}})
+
+        assert config.get("embedding.cache_dir") == "./embeddings/cache"
+
 
 class TestGetConfig:
     def test_get_config_returns_same_instance_on_subsequent_calls(self) -> None:

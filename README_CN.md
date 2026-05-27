@@ -25,8 +25,8 @@ uv sync
 # 2. 启动 Qdrant 服务器（见下方 Qdrant 服务器配置）
 docker compose up -d qdrant
 
-# 3. 下载 Embedding 模型（bge-m3，约 2.2 GB）
-#    自动缓存到 ./embeddings/cache/
+# 3. 首次使用时下载 Embedding + Reranker 模型
+#    默认缓存到 ./embeddings/cache/，也可通过 ATE_KB_MODEL_CACHE 指定
 
 # 4. 导入内置文档到 Qdrant
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
@@ -35,7 +35,9 @@ uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
 uv run -m ate_rag_kb.cli.main mcp
 ```
 
-> **注意：** Embedding 模型缓存（`./embeddings/cache/`）因体积较大，**未**提交到 git。克隆后需执行一次上述导入步骤。
+> **注意：** 模型缓存（`./embeddings/cache/`）因体积较大，**未**提交到 git。
+> 克隆后需执行一次上述导入步骤；如果已恢复预构建的 Qdrant snapshot 或
+> `data/qdrant_server/` 离线包，则可跳过重新导入。
 >
 > **Server mode 为默认配置。** 默认情况下 KB 连接到 `http://localhost:6333`
 >（Qdrant 服务器）。Local file mode（`./data/qdrant_storage/`）仅供单进程开发调试使用，
@@ -66,6 +68,44 @@ docker run -d -p 6333:6333 -p 6334:6334 \
 
 Qdrant 数据持久化到 `./data/qdrant_server/`（与旧的 local mode
 `./data/qdrant_storage/` 分开，避免锁冲突）。
+
+## 模型缓存与离线模式
+
+默认配置允许首次联网下载模型：
+
+```yaml
+embedding:
+  cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
+  local_files_only: false
+```
+
+系统会下载并复用：
+
+- `BAAI/bge-m3`：用于 embedding
+- `BAAI/bge-reranker-v2-m3`：用于 cross-encoder rerank
+
+如果希望把模型缓存放到共享目录或外部磁盘：
+
+```bash
+export ATE_KB_MODEL_CACHE=/path/to/ate-kb-model-cache
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
+```
+
+如果是完全离线的工程师部署，先在能联网的机器准备好模型缓存，再复制到目标机器，
+并设置：
+
+```yaml
+embedding:
+  cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
+  local_files_only: true
+```
+
+离线模式下如果缺少 embedding 或 reranker 模型缓存，程序会直接报出清晰错误。
 
 ### Local Mode（仅限单进程开发）
 

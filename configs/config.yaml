@@ -18,8 +18,9 @@ embedding:
   normalize_embeddings: true
   batch_size: 8
   max_seq_length: 512
-  cache_dir: "/Users/walter_luo/Project/ate-rag-kb/embeddings/cache"
-  local_files_only: true
+  cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
+  # false: allow first-time model download; true: require a prepared local cache.
+  local_files_only: false
   query_instruction: "Represent this sentence for searching relevant passages: "
 
 # Vector store configuration

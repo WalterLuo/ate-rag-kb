@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import numpy as np
@@ -44,3 +45,43 @@ class TestEmbeddingEncoder:
     def test_vector_size(self, encoder: EmbeddingEncoder) -> None:
         encoder.model.get_sentence_embedding_dimension.return_value = 1024
         assert encoder.vector_size == 1024
+
+    def test_online_mode_does_not_force_offline_environment(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+        cfg = Config(
+            {
+                "embedding": {
+                    "device": "cpu",
+                    "cache_dir": str(tmp_path),
+                    "local_files_only": False,
+                }
+            }
+        )
+
+        with patch("ate_rag_kb.embedding.encoder.SentenceTransformer") as mock_cls:
+            encoder = EmbeddingEncoder(cfg)
+            _ = encoder.model
+
+        assert "HF_HUB_OFFLINE" not in os.environ
+        assert "TRANSFORMERS_OFFLINE" not in os.environ
+        mock_cls.assert_called_once()
+        assert mock_cls.call_args.kwargs["local_files_only"] is False
+
+    def test_offline_mode_raises_clear_error_when_cache_missing(self, tmp_path) -> None:
+        cfg = Config(
+            {
+                "embedding": {
+                    "model_name": "BAAI/bge-m3",
+                    "device": "cpu",
+                    "cache_dir": str(tmp_path),
+                    "local_files_only": True,
+                }
+            }
+        )
+        encoder = EmbeddingEncoder(cfg)
+
+        with pytest.raises(FileNotFoundError, match="Local model cache not found"):
+            _ = encoder.model

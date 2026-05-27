@@ -3,10 +3,28 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}")
+
+
+def _expand_env_vars(value: str) -> str:
+    """Expand ${VAR} and ${VAR:-default} placeholders in config strings."""
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        default = match.group(2)
+        if name in os.environ:
+            return os.environ[name]
+        if default is not None:
+            return default
+        return match.group(0)
+
+    return _ENV_PATTERN.sub(replace, value)
 
 
 class Config:
@@ -24,6 +42,8 @@ class Config:
                 val = val[part]
             else:
                 return default
+        if isinstance(val, str):
+            return _expand_env_vars(val)
         return val
 
     def __getitem__(self, key: str) -> Any:

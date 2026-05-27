@@ -8,6 +8,7 @@ import pytest
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
 from ate_rag_kb.retrieval.reranker import Reranker
+from ate_rag_kb.utils.config import Config
 
 
 class TestReranker:
@@ -53,3 +54,22 @@ class TestReranker:
             result = reranker.rerank("query", chunks)
 
             assert len(result) == 3
+
+    def test_offline_mode_raises_clear_error_when_reranker_cache_missing(self, tmp_path) -> None:
+        cfg = Config(
+            {
+                "embedding": {
+                    "cache_dir": str(tmp_path),
+                    "local_files_only": True,
+                },
+                "retrieval": {
+                    "reranker": {
+                        "model_name": "BAAI/bge-reranker-v2-m3",
+                    }
+                },
+            }
+        )
+        reranker = Reranker(cfg)
+
+        with pytest.raises(FileNotFoundError, match="Local model cache not found"):
+            _ = reranker.model
