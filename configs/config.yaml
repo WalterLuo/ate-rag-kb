@@ -34,6 +34,8 @@ vector_store:
   collection_name: "ate_kb"
   grpc_port: 6334
   prefer_grpc: false
+  # Keep each Qdrant HTTP payload comfortably below the default 32 MiB limit.
+  upsert_batch_size: 128
   local_path: "./data/qdrant_storage"
   use_local: false
 

@@ -396,3 +396,312 @@ class TestMcpToolHandler:
         result = await handler.handle_status({})
 
         assert result.status == "degraded"
+
+    # -----------------------------------------------------------------------
+    # IG-XL source hints (15Q evaluation follow-up)
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("query", "expected_sources"),
+        [
+            (
+                "DSIO200 的 VSSS/VSSC 是什么",
+                (
+                    "igxl/patternlanguage/plinstruments.5.07.md",
+                    "igxl/dibdesign/dib_hsd200.16.5.md",
+                ),
+            ),
+            (
+                "IG-XL SECS/GEM spooling CONTROLSTATE",
+                ("igxl/secsgem/secs_scenario.11.51.md",),
+            ),
+            (
+                "IG-XL SECS/GEM spooling 在什么 CONTROLSTATE 下有意义",
+                ("igxl/secsgem/secs_scenario.11.51.md",),
+            ),
+            (
+                "Test Analysis Tool startup",
+                ("igxl/testanalysis/taUsing.1.2.md",),
+            ),
+            (
+                "Available J750 Features",
+                ("igxl/igxladmin/adLicensing.2.6.md",),
+            ),
+            (
+                "Available J750 Features 文档说明 J750 features 按哪些 instrument 或 feature 分类",
+                ("igxl/igxladmin/adLicensing.2.6.md",),
+            ),
+            (
+                "MTO Pattern Microcodes",
+                (
+                    "igxl/patternlanguage/plmto.7.03.md",
+                    "igxl/patterntool/PTVectorsEditing.4.21.md",
+                ),
+            ),
+            (
+                "Programming the MTO Resource Map",
+                ("igxl/mto800/mt800prog.3.04.md",),
+            ),
+            (
+                "MTO Resource Map Sheet programming restrictions",
+                (
+                    "igxl/datatool/DTSheets.11.185.md",
+                    "igxl/mto800/mt800prog.3.04.md",
+                ),
+            ),
+            (
+                "MTO800 中 Programming the MTO Resource Map 应该查看哪个文档",
+                ("igxl/mto800/mt800prog.3.04.md",),
+            ),
+            (
+                "DataTool 中 MTO Resource Map Sheet 的 programming restrictions 和 configuration limitations",
+                (
+                    "igxl/datatool/DTSheets.11.185.md",
+                    "igxl/mto800/mt800prog.3.04.md",
+                ),
+            ),
+            (
+                "Pattern Tool 中如果 pattern file 使用 MTO，Vectors worksheet 会有什么额外内容",
+                (
+                    "igxl/patterntool/PTVectorsEditing.4.21.md",
+                    "igxl/patternlanguage/plmto.7.03.md",
+                ),
+            ),
+        ],
+    )
+    def test_source_hints_for_igxl_weak_topics(
+        self, query: str, expected_sources: tuple[str, ...]
+    ) -> None:
+        _, source_mds = McpToolHandler._source_hints_for_query(query)
+        assert source_mds == expected_sources
+        assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
+
+    def test_select_source_hint_chunk_prefers_term_match(self) -> None:
+        chunk1 = Chunk(
+            id="c1",
+            content="general intro",
+            chunk_type=ChunkType.PARAGRAPH,
+            doc_title="Intro",
+        )
+        chunk2 = Chunk(
+            id="c2",
+            content="VSSS and VSSC details",
+            chunk_type=ChunkType.PARAGRAPH,
+            doc_title="DSIO200",
+        )
+        result = McpToolHandler._select_source_hint_chunk(
+            "DSIO200 VSSS", [chunk1, chunk2], ("vsss", "vssc")
+        )
+        assert result is not None
+        assert result.id == "c2"
+
+    @pytest.mark.asyncio
+    async def test_handle_retrieve_adds_igxl_dsio200_source_hints(self) -> None:
+        handler = McpToolHandler(AsyncMock())
+        generic = self._make_chunk(
+            chunk_id="generic",
+            source_md="igxl/relnotesprev/ReadMe_V3.50.50.4.20.md",
+            doc_title="Release Notes",
+        )
+        vsss = self._make_chunk(
+            chunk_id="vsss",
+            source_md="igxl/patternlanguage/plinstruments.5.07.md",
+            doc_title="Pattern Language Instruments",
+            section_title="DSIO200 VSSS/VSSC",
+        )
+        vssc = self._make_chunk(
+            chunk_id="vssc",
+            source_md="igxl/dibdesign/dib_hsd200.16.5.md",
+            doc_title="DIB Design",
+            section_title="HSD200",
+        )
+        docs = {
+            "igxl/patternlanguage/plinstruments.5.07.md": [vsss],
+            "igxl/dibdesign/dib_hsd200.16.5.md": [vssc],
+        }
+        handler.pipeline.retrieve = AsyncMock(return_value=[(generic, 0.6)])
+        handler.pipeline.get_document = AsyncMock(
+            side_effect=lambda source_md: docs.get(source_md, [])
+        )
+
+        result = await handler.handle_retrieve({"query": "DSIO200 的 VSSS/VSSC 是什么"})
+
+        source_mds = [chunk.source_md for chunk in result.chunks]
+        assert source_mds[:2] == [
+            "igxl/patternlanguage/plinstruments.5.07.md",
+            "igxl/dibdesign/dib_hsd200.16.5.md",
+        ]
+        assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
+
+    @pytest.mark.asyncio
+    async def test_handle_ask_adds_igxl_secsgem_spooling_hint(self) -> None:
+        handler = McpToolHandler(AsyncMock())
+        generic = self._make_chunk(
+            chunk_id="generic",
+            source_md="igxl/datatool/dtribbon.03.10.md",
+            doc_title="DataTool Ribbon",
+        )
+        spooling = self._make_chunk(
+            chunk_id="spooling",
+            source_md="igxl/secsgem/secs_scenario.11.51.md",
+            doc_title="SECS Scenario",
+            section_title="Spooling CONTROLSTATE",
+        )
+        docs = {"igxl/secsgem/secs_scenario.11.51.md": [spooling]}
+        handler.pipeline.search = AsyncMock(return_value=[(generic, 0.6)])
+        handler.pipeline.get_document = AsyncMock(
+            side_effect=lambda source_md: docs.get(source_md, [])
+        )
+
+        result = await handler.handle_ask(
+            {"question": "IG-XL SECS/GEM spooling 在什么 CONTROLSTATE 下有意义"}
+        )
+
+        assert "igxl/secsgem/secs_scenario.11.51.md" in result.source_files
+        assert all(not src.startswith(("smt7/", "v93000/")) for src in result.source_files)
+        assert result.citations[0].source_md == "igxl/secsgem/secs_scenario.11.51.md"
+
+    @pytest.mark.asyncio
+    async def test_handle_ask_adds_mto_resource_map_hint(self) -> None:
+        handler = McpToolHandler(AsyncMock())
+        generic = self._make_chunk(
+            chunk_id="generic",
+            source_md="igxl/datatool/dtribbon.03.10.md",
+            doc_title="DataTool Ribbon",
+        )
+        resource_map = self._make_chunk(
+            chunk_id="resource_map",
+            source_md="igxl/mto800/mt800prog.3.04.md",
+            doc_title="MTO800 Programming",
+            section_title="Programming the MTO Resource Map",
+        )
+        docs = {"igxl/mto800/mt800prog.3.04.md": [resource_map]}
+        handler.pipeline.search = AsyncMock(return_value=[(generic, 0.6)])
+        handler.pipeline.get_document = AsyncMock(
+            side_effect=lambda source_md: docs.get(source_md, [])
+        )
+
+        result = await handler.handle_ask(
+            {"question": "MTO800 中 Programming the MTO Resource Map 应该查看哪个文档"}
+        )
+
+        assert "igxl/mto800/mt800prog.3.04.md" in result.source_files
+        assert all(not src.startswith(("smt7/", "v93000/")) for src in result.source_files)
+        assert result.citations[0].source_md == "igxl/mto800/mt800prog.3.04.md"
+
+    @pytest.mark.asyncio
+    async def test_handle_ask_adds_mto_datatool_restrictions_hint(self) -> None:
+        handler = McpToolHandler(AsyncMock())
+        generic = self._make_chunk(
+            chunk_id="generic",
+            source_md="igxl/datatool/dtribbon.03.10.md",
+            doc_title="DataTool Ribbon",
+        )
+        sheet = self._make_chunk(
+            chunk_id="sheet",
+            source_md="igxl/datatool/DTSheets.11.185.md",
+            doc_title="DataTool Sheets",
+            section_title="MTO Resource Map Sheet",
+        )
+        resource_map = self._make_chunk(
+            chunk_id="resource_map",
+            source_md="igxl/mto800/mt800prog.3.04.md",
+            doc_title="MTO800 Programming",
+            section_title="Programming the MTO Resource Map",
+        )
+        docs = {
+            "igxl/datatool/DTSheets.11.185.md": [sheet],
+            "igxl/mto800/mt800prog.3.04.md": [resource_map],
+        }
+        handler.pipeline.search = AsyncMock(return_value=[(generic, 0.6)])
+        handler.pipeline.get_document = AsyncMock(
+            side_effect=lambda source_md: docs.get(source_md, [])
+        )
+
+        result = await handler.handle_ask(
+            {
+                "question": "DataTool 中 MTO Resource Map Sheet 的 programming restrictions 和 configuration limitations"
+            }
+        )
+
+        source_mds = result.source_files
+        assert "igxl/datatool/DTSheets.11.185.md" in source_mds
+        assert "igxl/mto800/mt800prog.3.04.md" in source_mds
+        assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
+        assert all(
+            not src.split("/")[-1].split(".")[0].isdigit() for src in source_mds
+        )
+
+    # -----------------------------------------------------------------------
+    # IG-XL contamination filtering (Q8 follow-up)
+    # -----------------------------------------------------------------------
+
+    def test_is_igxl_query_detects_igxl_context(self) -> None:
+        assert McpToolHandler._is_igxl_query("IG-XL SECS/GEM spooling") is True
+        assert McpToolHandler._is_igxl_query("J750 license management") is True
+        assert McpToolHandler._is_igxl_query("Pattern Tool MTO vectors") is True
+        assert McpToolHandler._is_igxl_query("How does V93000 pattern tool work") is False
+        assert McpToolHandler._is_igxl_query("SMT7 array handling") is False
+
+    def test_is_smt7_or_v93000_chunk_detects_numeric_and_prefix_docs(self) -> None:
+        smt7_prefixed = self._make_chunk(source_md="smt7/pattern/119474.md")
+        v93000_prefixed = self._make_chunk(source_md="v93000/timing/levels.md")
+        numeric_only = self._make_chunk(source_md="119474.md")
+        numeric_variant = self._make_chunk(source_md="119474_2.md")
+        igxl_doc = self._make_chunk(source_md="igxl/patterntool/PTVectorsEditing.4.21.md")
+
+        assert McpToolHandler._is_smt7_or_v93000_chunk(smt7_prefixed) is True
+        assert McpToolHandler._is_smt7_or_v93000_chunk(v93000_prefixed) is True
+        assert McpToolHandler._is_smt7_or_v93000_chunk(numeric_only) is True
+        assert McpToolHandler._is_smt7_or_v93000_chunk(numeric_variant) is True
+        assert McpToolHandler._is_smt7_or_v93000_chunk(igxl_doc) is False
+
+    def test_filter_igxl_contamination_removes_smt7_for_igxl_queries(self) -> None:
+        igxl_chunk = self._make_chunk(source_md="igxl/patterntool/PTVectorsEditing.4.21.md")
+        smt7_chunk = self._make_chunk(source_md="119474.md")
+        v93000_chunk = self._make_chunk(source_md="v93000/timing/levels.md")
+        results = [(igxl_chunk, 0.9), (smt7_chunk, 0.85), (v93000_chunk, 0.8)]
+
+        filtered = McpToolHandler._filter_igxl_contamination(
+            "Pattern Tool 中如果 pattern file 使用 MTO", results
+        )
+
+        source_mds = [c.source_md for c, _ in filtered]
+        assert source_mds == ["igxl/patterntool/PTVectorsEditing.4.21.md"]
+
+    def test_filter_igxl_contamination_preserves_all_for_neutral_queries(self) -> None:
+        igxl_chunk = self._make_chunk(source_md="igxl/patterntool/PTVectorsEditing.4.21.md")
+        smt7_chunk = self._make_chunk(source_md="119474.md")
+        results = [(igxl_chunk, 0.9), (smt7_chunk, 0.85)]
+
+        filtered = McpToolHandler._filter_igxl_contamination(
+            "How does testing work in general", results
+        )
+
+        assert len(filtered) == 2
+
+    @pytest.mark.asyncio
+    async def test_handle_ask_filters_smt7_contamination_for_igxl_query(self) -> None:
+        handler = McpToolHandler(AsyncMock())
+        igxl_chunk = self._make_chunk(
+            chunk_id="igxl",
+            source_md="igxl/patterntool/PTVectorsEditing.4.21.md",
+            doc_title="Pattern Tool Vectors",
+        )
+        smt7_chunk = self._make_chunk(
+            chunk_id="smt7",
+            source_md="119474.md",
+            doc_title="Pattern Tool MTO",
+        )
+        handler.pipeline.search = AsyncMock(
+            return_value=[(igxl_chunk, 0.9), (smt7_chunk, 0.85)]
+        )
+        handler.pipeline.get_document = AsyncMock(return_value=[])
+
+        result = await handler.handle_ask(
+            {"question": "Pattern Tool 中如果 pattern file 使用 MTO，Vectors worksheet 会有什么额外内容"}
+        )
+
+        assert all(not src.startswith(("smt7/", "v93000/")) for src in result.source_files)
+        assert "119474.md" not in result.source_files
+        assert "igxl/patterntool/PTVectorsEditing.4.21.md" in result.source_files

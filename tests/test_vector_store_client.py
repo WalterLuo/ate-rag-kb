@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
+from ate_rag_kb.utils.config import Config
 from ate_rag_kb.vector_store.qdrant_client import QdrantVectorStore
 
 
@@ -33,6 +34,30 @@ class TestQdrantVectorStore:
         mock_client.upsert.assert_called_once()
         args = mock_client.upsert.call_args
         assert len(args.kwargs["points"]) == 1
+
+    def test_upsert_chunks_splits_large_requests_by_configured_batch_size(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
+            qdrant_cls.return_value = mock_client
+            with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
+                store = QdrantVectorStore(Config({"vector_store": {"upsert_batch_size": 2}}))
+        chunks = [
+            Chunk(
+                id=f"c{i}",
+                content="large payload",
+                chunk_type=ChunkType.PARAGRAPH,
+                embedding=[0.1] * 1024,
+            )
+            for i in range(5)
+        ]
+
+        store.upsert_chunks(chunks)
+
+        assert mock_client.upsert.call_count == 3
+        batch_sizes = [len(call.kwargs["points"]) for call in mock_client.upsert.call_args_list]
+        assert batch_sizes == [2, 2, 1]
 
     def test_search_returns_chunks_with_scores(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
         mock_point = MagicMock()

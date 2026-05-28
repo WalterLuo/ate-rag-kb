@@ -29,6 +29,7 @@ class QdrantVectorStore:
     def __init__(self, config: Config | None = None) -> None:
         cfg = config or Config({})
         self.collection_name: str = cfg.get("vector_store.collection_name", "ate_kb")
+        self.upsert_batch_size: int = cfg.get("vector_store.upsert_batch_size", 128)
         self.use_local: bool = cfg.get("vector_store.use_local", False)
         self.local_path: Path = Path(cfg.get("vector_store.local_path", "./data/qdrant_storage"))
         url: str | None = cfg.get("vector_store.url")
@@ -69,9 +70,10 @@ class QdrantVectorStore:
                 )
             )
 
-        if points:
-            self.client.upsert(collection_name=self.collection_name, points=points)
-            logger.info("Upserted %d chunks into '%s'.", len(points), self.collection_name)
+        for start in range(0, len(points), self.upsert_batch_size):
+            batch = points[start : start + self.upsert_batch_size]
+            self.client.upsert(collection_name=self.collection_name, points=batch)
+            logger.info("Upserted %d chunks into '%s'.", len(batch), self.collection_name)
 
     def search(
         self,

@@ -101,6 +101,16 @@ class IngestionPipeline:
         metadata["source_md"] = source_md
         metadata["source_json"] = source_json
 
+        # Derive platform tags from source path for downstream filtering
+        if "tags" not in metadata:
+            metadata["tags"] = []
+        if source_md.startswith("igxl/") and "ig-xl" not in metadata["tags"]:
+            metadata["tags"].append("ig-xl")
+        elif source_md.startswith("smt7/") and "smt7" not in metadata["tags"]:
+            metadata["tags"].append("smt7")
+        elif source_md.startswith("v93000/") and "v93000" not in metadata["tags"]:
+            metadata["tags"].append("v93000")
+
         # Enrich with toc_tree parent/child relationships
         source_html = metadata.get("source_html", "")
         if source_html and self._href_to_node:
@@ -232,6 +242,9 @@ class IngestionPipeline:
     @staticmethod
     def _detect_platform(path: Path) -> str:
         name = path.name.lower()
+        path_str = str(path).lower()
+        if "igxl" in path_str:
+            return "J750"
         if "j750" in name or "ultraflex" in name:
             return "J750"
         if "smt7" in name or "smt8" in name:

@@ -34,7 +34,158 @@ _QUERY_SOURCE_HINTS: tuple[dict[str, Any], ...] = (
         "terms": ("array", "array_x", "array_d", "array_i"),
         "source_mds": ("20847.md", "130224.md", "102025.md"),
     },
+    # IG-XL weak topics from 15Q evaluation (2026-05-28)
+    {
+        # Q4: DSIO200 VSSS/VSSC definition and quad mode support
+        "terms": (
+            "vsss",
+            "vssc",
+            "dsio200 vsss",
+            "dsio200 vssc",
+            "vsss/vssc",
+            "virtual serial source",
+            "virtual serial capture",
+            "quad mode",
+            "四通道",
+            "不支持 quad",
+        ),
+        "source_mds": (
+            "igxl/patternlanguage/plinstruments.5.07.md",
+            "igxl/dibdesign/dib_hsd200.16.5.md",
+        ),
+    },
+    {
+        # Q5: SECS/GEM spooling CONTROLSTATE and Off-Line messages
+        "terms": (
+            "secs/gem spooling",
+            "spooling controlstate",
+            "off-line messages",
+            "secs spooling",
+            "controlstate off-line",
+            "spooling",
+            "controlstate",
+            "off-line",
+            "离线",
+            "脱机",
+            "控制状态",
+        ),
+        "source_mds": ("igxl/secsgem/secs_scenario.11.51.md",),
+    },
+    {
+        # Q8: Pattern Tool MTO Vectors worksheet extra columns
+        "terms": (
+            "pattern tool mto",
+            "mto vectors worksheet",
+            "pattern file mto",
+            "vectors worksheet mto",
+            "mto vectors",
+            "pattern tool",
+            "使用 mto",
+        ),
+        "source_mds": (
+            "igxl/patterntool/PTVectorsEditing.4.21.md",
+            "igxl/patternlanguage/plmto.7.03.md",
+        ),
+    },
+    {
+        # Q10: IG-XL Test Analysis Tool startup
+        "terms": (
+            "test analysis tool startup",
+            "test analysis tool 启动",
+            "tausing.1.2",
+            "test analysis tool start menu",
+            "test analysis tool datatool",
+        ),
+        "source_mds": ("igxl/testanalysis/taUsing.1.2.md",),
+    },
+    {
+        # Q14: Available J750 Features classification
+        "terms": (
+            "available j750 features",
+            "j750 features classification",
+            "j750 features 分类",
+            "available j750",
+            "j750 功能",
+            "功能分类",
+            "可用功能",
+        ),
+        "source_mds": ("igxl/igxladmin/adLicensing.2.6.md",),
+    },
+    # Q6: MTO800 Resource Map programming
+    {
+        "terms": (
+            "mto800 resource map",
+            "programming the mto resource map",
+            "mto resource map programming",
+            "资源映射",
+            "资源表",
+        ),
+        "source_mds": ("igxl/mto800/mt800prog.3.04.md",),
+    },
+    # Q6: MTO Pattern Microcodes / Pattern Tool MTO vectors
+    {
+        "terms": (
+            "mto pattern microcodes",
+            "pattern microcodes",
+            "mto vectors",
+            "vectors worksheet mto",
+            "pattern file mto",
+            "pattern tool mto",
+        ),
+        "source_mds": (
+            "igxl/patternlanguage/plmto.7.03.md",
+            "igxl/patterntool/PTVectorsEditing.4.21.md",
+        ),
+    },
+    # Q7: DataTool MTO Resource Map Sheet restrictions and limitations
+    {
+        "terms": (
+            "mto resource map sheet",
+            "datatool mto resource map",
+            "programming restrictions",
+            "configuration limitations",
+            "限制",
+            "配置限制",
+        ),
+        "source_mds": (
+            "igxl/datatool/DTSheets.11.185.md",
+            "igxl/mto800/mt800prog.3.04.md",
+        ),
+    },
 )
+
+# Terms that strongly indicate an IG-XL query context.
+_IGXL_QUERY_TERMS: tuple[str, ...] = (
+    "ig-xl",
+    "igxl",
+    "j750",
+    "ultraflex",
+    "mto800",
+    "dsio200",
+    "apmu",
+    "ip750",
+    "test analysis tool",
+    "secs/gem",
+    "available j750 features",
+    "simulatedconfig_j750",
+    "hsd800",
+    "j750ex",
+    "test program protection",
+    "visual basic for test",
+    "driverapi",
+    "pattern tool",
+    "mto",
+    "vectors worksheet",
+    "datatool",
+    "bitmap tool",
+    "redundancy analysis",
+    "raplus",
+    "production bit map",
+    "tpprotection",
+    "tppusing",
+)
+
+_NON_IGXL_TERMS: tuple[str, ...] = ("v93000", "smartest", "smt7", "smt8")
 
 # ---------------------------------------------------------------------------
 # Tool schemas (JSON Schema for MCP discovery)
@@ -243,10 +394,7 @@ class McpToolHandler:
         retrieval alone. These hints keep beta-regression sources visible while
         preserving the normal retrieval result list.
         """
-        source_mds = self._source_hints_for_query(query)
-        if not source_mds:
-            return results
-
+        matched_terms, source_mds = self._source_hints_for_query(query)
         seen_ids = {chunk.id for chunk, _ in results}
         seen_sources = {chunk.source_md for chunk, _ in results}
         hinted: list[tuple[Chunk, float]] = []
@@ -260,31 +408,37 @@ class McpToolHandler:
                 logger.warning("Failed to fetch source hint %s: %s", source_md, exc)
                 continue
 
-            chunk = self._select_source_hint_chunk(query, doc_chunks)
+            chunk = self._select_source_hint_chunk(query, doc_chunks, matched_terms)
             if chunk and chunk.id not in seen_ids:
                 hinted.append((chunk, 0.99))
                 seen_ids.add(chunk.id)
                 seen_sources.add(chunk.source_md)
 
-        return (hinted + results)[:max_results]
+        combined = self._filter_igxl_contamination(query, hinted + results)
+        return combined[:max_results]
 
     @staticmethod
-    def _source_hints_for_query(query: str) -> tuple[str, ...]:
+    def _source_hints_for_query(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         normalized = query.lower()
         source_mds: list[str] = []
+        matched_terms: list[str] = []
         for hint in _QUERY_SOURCE_HINTS:
-            if any(term in normalized for term in hint["terms"]):
+            hint_matched = [term for term in hint["terms"] if term in normalized]
+            if hint_matched:
                 source_mds.extend(hint["source_mds"])
-        return tuple(dict.fromkeys(source_mds))
+                matched_terms.extend(hint_matched)
+        return tuple(dict.fromkeys(matched_terms)), tuple(dict.fromkeys(source_mds))
 
     @staticmethod
-    def _select_source_hint_chunk(query: str, chunks: list[Chunk]) -> Chunk | None:
+    def _select_source_hint_chunk(
+        query: str, chunks: list[Chunk], terms: tuple[str, ...]
+    ) -> Chunk | None:
         if not chunks:
             return None
 
-        query_terms = [term for term in ("array", "array_x", "array_d", "array_i") if term in query.lower()]
+        query_terms = [term for term in terms if term in query.lower()]
         if not query_terms:
-            query_terms = ["array"]
+            query_terms = list(terms)[:1] if terms else []
 
         for chunk in chunks:
             haystack = " ".join(
@@ -299,6 +453,37 @@ class McpToolHandler:
                 return chunk
 
         return next((chunk for chunk in chunks if chunk.content.strip()), chunks[0])
+
+    @staticmethod
+    def _is_igxl_query(query: str) -> bool:
+        q = query.lower()
+        if any(term in q for term in _NON_IGXL_TERMS):
+            return False
+        return any(term in q for term in _IGXL_QUERY_TERMS)
+
+    @staticmethod
+    def _is_smt7_or_v93000_chunk(chunk: Chunk) -> bool:
+        sm = chunk.source_md.lower()
+        if sm.startswith(("smt7/", "v93000/", "smt8/")):
+            return True
+        basename = sm.split("/")[-1]
+        name_part = basename.split(".")[0]
+        if name_part.isdigit():
+            return True
+        return "_" in name_part and name_part.split("_")[0].isdigit()
+
+    @staticmethod
+    def _filter_igxl_contamination(
+        query: str, results: list[tuple[Chunk, float]]
+    ) -> list[tuple[Chunk, float]]:
+        if not McpToolHandler._is_igxl_query(query):
+            return results
+        filtered: list[tuple[Chunk, float]] = []
+        for chunk, score in results:
+            if McpToolHandler._is_smt7_or_v93000_chunk(chunk):
+                continue
+            filtered.append((chunk, score))
+        return filtered
 
     async def handle_search(self, args: dict[str, Any]) -> McpSearchResult:
         """Handle ate_kb.search."""
