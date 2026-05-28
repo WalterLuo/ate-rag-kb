@@ -30,24 +30,34 @@ class QdrantVectorStore:
         cfg = config or Config({})
         self.collection_name: str = cfg.get("vector_store.collection_name", "ate_kb")
         self.upsert_batch_size: int = cfg.get("vector_store.upsert_batch_size", 128)
-        self.use_local: bool = cfg.get("vector_store.use_local", False)
         self.local_path: Path = Path(cfg.get("vector_store.local_path", "./data/qdrant_storage"))
+        mode: str | None = cfg.get("vector_store.mode")
         url: str | None = cfg.get("vector_store.url")
+        use_local: bool = cfg.get("vector_store.use_local", False)
 
-        if url:
-            self.client = QdrantClient(url=url)
-            logger.info("Initialized Qdrant server at %s", url)
-        elif self.use_local:
+        # mode takes priority; fallback to legacy use_local/url logic
+        if mode == "local" or (mode is None and use_local):
             self.local_path.mkdir(parents=True, exist_ok=True)
             self.client = QdrantClient(path=str(self.local_path))
             logger.info("Initialized local Qdrant at %s", self.local_path)
+        elif mode == "server" or mode is None:
+            if url:
+                self.client = QdrantClient(url=url)
+                logger.info("Initialized Qdrant server at %s", url)
+            else:
+                host = cfg.get("vector_store.host", "localhost")
+                port = cfg.get("vector_store.port", 6333)
+                self.client = QdrantClient(host=host, port=port)
+                logger.info("Initialized remote Qdrant at %s:%s", host, port)
         else:
-            host = cfg.get("vector_store.host", "localhost")
-            port = cfg.get("vector_store.port", 6333)
-            self.client = QdrantClient(host=host, port=port)
-            logger.info("Initialized remote Qdrant at %s:%s", host, port)
+            raise ValueError(f"Invalid vector_store.mode: {mode}. Use 'server' or 'local'.")
 
         ensure_collection(self.client, cfg)
+
+    def clear_collection(self) -> None:
+        """Delete all points from the collection."""
+        self.client.delete(collection_name=self.collection_name, points_selector=None)
+        logger.info("Cleared all points from collection '%s'.", self.collection_name)
 
     def upsert_chunks(self, chunks: list[Chunk]) -> None:
         """Batch upsert chunks with embeddings into Qdrant."""

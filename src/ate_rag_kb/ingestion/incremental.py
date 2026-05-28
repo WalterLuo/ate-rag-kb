@@ -1,33 +1,133 @@
-"""Incremental ingestion with change detection."""
+"""Incremental ingestion with change detection and profile-isolated state."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.ingestion.pipeline import IngestionPipeline
+from ate_rag_kb.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE = Path("./data/processed/ingestion_state.json")
+LEGACY_STATE_FILE = Path("./data/processed/ingestion_state.json")
+STATE_DIR = Path("./data/processed")
+
+
+def _compute_profile_key(config: Config) -> str:
+    """Compute a short deterministic hash that identifies this ingestion profile.
+
+    The profile covers vector-store backend, collection, embedding model,
+    chunking strategy, and document scope so that switching any of them
+    produces a separate state file and triggers a full rebuild.
+    """
+    mode = config.get("vector_store.mode", "server")
+    collection = config.get("vector_store.collection_name", "ate_kb")
+    url = config.get("vector_store.url", "")
+    local_path = config.get("vector_store.local_path", "")
+    endpoint = url if mode == "server" and url else local_path
+    embedding_model = config.get("embedding.model_name", "")
+    chunking_strategies = config.get("chunking.strategies", {})
+    chunking_hash = hashlib.sha256(
+        json.dumps(chunking_strategies, sort_keys=True).encode()
+    ).hexdigest()[:16]
+    documents = config.get("documents", {})
+    documents_hash = hashlib.sha256(
+        json.dumps(documents, sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+    raw = f"{mode}:{collection}:{endpoint}:{embedding_model}:{chunking_hash}:{documents_hash}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _get_state_file(config: Config) -> Path:
+    """Return the profile-specific state file path."""
+    profile_key = _compute_profile_key(config)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    return STATE_DIR / f"state_{profile_key}.json"
+
+
+def _build_profile(config: Config) -> dict[str, Any]:
+    """Build the profile metadata dict stored inside the state file."""
+    mode = config.get("vector_store.mode", "server")
+    url = config.get("vector_store.url", "")
+    local_path = config.get("vector_store.local_path", "")
+    endpoint = url if mode == "server" and url else local_path
+    documents = config.get("documents", {})
+    return {
+        "mode": mode,
+        "collection_name": config.get("vector_store.collection_name", "ate_kb"),
+        "endpoint": endpoint,
+        "embedding_model": config.get("embedding.model_name", ""),
+        "schema_version": 1,
+        "documents_hash": hashlib.sha256(
+            json.dumps(documents, sort_keys=True).encode()
+        ).hexdigest()[:16],
+    }
 
 
 class IncrementalIngestion:
-    """Track file changes and only ingest new/modified documents."""
+    """Track file changes and only ingest new/modified documents.
 
-    def __init__(self, pipeline: IngestionPipeline, state_file: Path | None = None) -> None:
+    State is isolated per ingestion profile (backend + collection + model +
+    chunking + document scope).  Switching profiles never reuses old state,
+    and the first run with a new profile always performs a full rebuild.
+    """
+
+    def __init__(
+        self,
+        pipeline: IngestionPipeline,
+        state_file: Path | None = None,
+    ) -> None:
         self.pipeline = pipeline
-        self.state_file = state_file or STATE_FILE
+        self.config = pipeline.config
+        self.state_file = state_file or _get_state_file(self.config)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        self._maybe_rename_legacy_state()
 
-    def _load_state(self) -> dict[str, float]:
+    def _maybe_rename_legacy_state(self) -> None:
+        """Rename the old monolithic state file to .legacy once."""
+        if LEGACY_STATE_FILE.exists():
+            legacy = LEGACY_STATE_FILE.with_suffix(".json.legacy")
+            LEGACY_STATE_FILE.rename(legacy)
+            logger.info("Renamed legacy state file to %s", legacy)
+
+    def state_exists(self) -> bool:
+        """Return True if a state file exists for the current profile."""
+        return self.state_file.exists()
+
+    def needs_full_rebuild(self) -> bool:
+        """Return True when no valid state exists for the current profile.
+
+        This happens on first run with a new profile or when the profile
+        metadata stored inside the state file does not match the current
+        configuration.
+        """
+        if not self.state_file.exists():
+            return True
+        state = self._load_state()
+        stored_profile = state.get("_profile", {})
+        current_profile = _build_profile(self.config)
+        if stored_profile != current_profile:
+            logger.warning(
+                "Profile mismatch detected (stored %s vs current %s). "
+                "Triggering full rebuild.",
+                stored_profile,
+                current_profile,
+            )
+            return True
+        return False
+
+    def _load_state(self) -> dict[str, Any]:
         if self.state_file.exists():
             return json.loads(self.state_file.read_text(encoding="utf-8"))
         return {}
 
-    def _save_state(self, state: dict[str, float]) -> None:
+    def _save_state(self, state: dict[str, Any]) -> None:
         self.state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     def scan_for_changes(
@@ -36,15 +136,16 @@ class IncrementalIngestion:
     ) -> tuple[list[Path], list[Path]]:
         """Return (new_files, modified_files)."""
         state = self._load_state()
+        file_states = state.get("files", {})
         new_files: list[Path] = []
         modified_files: list[Path] = []
 
         for md_path in markdown_dir.rglob("*.md"):
             rel = str(md_path.relative_to(markdown_dir))
             mtime = md_path.stat().st_mtime
-            if rel not in state:
+            if rel not in file_states:
                 new_files.append(md_path)
-            elif mtime > state[rel]:
+            elif mtime > file_states[rel]:
                 modified_files.append(md_path)
 
         return new_files, modified_files
@@ -60,6 +161,7 @@ class IncrementalIngestion:
         logger.info("Incremental scan: %d new, %d modified", len(new_files), len(modified_files))
 
         state = self._load_state()
+        file_states: dict[str, float] = state.get("files", {})
 
         # Delete old chunks for modified files first
         for md_path in modified_files:
@@ -79,7 +181,8 @@ class IncrementalIngestion:
         # Helper to persist state immediately after a batch succeeds
         def _commit_batch(successful_batch_rels: list[str]) -> None:
             for r in successful_batch_rels:
-                state[r] = (markdown_dir / r).stat().st_mtime
+                file_states[r] = (markdown_dir / r).stat().st_mtime
+            state["files"] = file_states
             self._save_state(state)
 
         for md_path in new_files + modified_files:

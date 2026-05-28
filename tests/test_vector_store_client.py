@@ -182,3 +182,86 @@ class TestQdrantVectorStore:
             QdrantVectorStore(Config({"vector_store": {"host": "qdrant", "port": 9999}}))
 
         qdrant_cls.assert_called_once_with(host="qdrant", port=9999)
+
+    def test_init_mode_local_uses_path_client(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+            "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
+        ):
+            from ate_rag_kb.utils.config import Config
+
+            QdrantVectorStore(
+                Config({"vector_store": {"mode": "local", "local_path": "/tmp/qdrant_local"}})
+            )
+
+        qdrant_cls.assert_called_once_with(path="/tmp/qdrant_local")
+
+    def test_init_mode_server_with_url_uses_url(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+            "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
+        ):
+            from ate_rag_kb.utils.config import Config
+
+            QdrantVectorStore(
+                Config({"vector_store": {"mode": "server", "url": "http://qdrant:6333"}})
+            )
+
+        qdrant_cls.assert_called_once_with(url="http://qdrant:6333")
+
+    def test_init_mode_server_without_url_uses_host_port(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+            "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
+        ):
+            from ate_rag_kb.utils.config import Config
+
+            QdrantVectorStore(
+                Config({"vector_store": {"mode": "server", "host": "qdrant", "port": 9999}})
+            )
+
+        qdrant_cls.assert_called_once_with(host="qdrant", port=9999)
+
+    def test_init_mode_takes_priority_over_use_local(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+            "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
+        ):
+            from ate_rag_kb.utils.config import Config
+
+            QdrantVectorStore(
+                Config(
+                    {
+                        "vector_store": {
+                            "mode": "server",
+                            "use_local": True,
+                            "local_path": "/tmp/qdrant_local",
+                        }
+                    }
+                )
+            )
+
+        qdrant_cls.assert_called_once_with(host="localhost", port=6333)
+
+    def test_init_mode_takes_priority_over_url(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+            "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
+        ):
+            from ate_rag_kb.utils.config import Config
+
+            QdrantVectorStore(
+                Config(
+                    {
+                        "vector_store": {
+                            "mode": "local",
+                            "url": "http://qdrant:6333",
+                            "local_path": "/tmp/qdrant_local",
+                        }
+                    }
+                )
+            )
+
+        qdrant_cls.assert_called_once_with(path="/tmp/qdrant_local")
+
+    def test_clear_collection(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
+        store.clear_collection()
+
+        mock_client.delete.assert_called_once_with(
+            collection_name=store.collection_name, points_selector=None
+        )

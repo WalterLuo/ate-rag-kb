@@ -24,10 +24,13 @@ embedding:
   query_instruction: "Represent this sentence for searching relevant passages: "
 
 # Vector store configuration
-# Server mode (default): set use_local=false and provide url.
-# Local mode (single-process dev only): set use_local=true.
+# mode: "server" (Docker/multi-process, default) or "local" (embedded, single-process only)
+# Server mode: prefer url, fallback to host:port
+# Local mode: uses path=local_path (Qdrant embedded)
+# Legacy: use_local=true also selects local mode when mode is absent
 vector_store:
   type: "qdrant"
+  mode: "server"
   url: "http://localhost:6333"
   host: "localhost"
   port: 6333
@@ -38,6 +41,19 @@ vector_store:
   upsert_batch_size: 128
   local_path: "./data/qdrant_storage"
   use_local: false
+
+# Document scope and software version configuration
+documents:
+  enabled_ecosystems:
+    - "v93000"
+  v93000:
+    enabled_software_versions:
+      - "smt7"
+    include_general_docs: true
+    default_software_version: "ask"
+    ambiguity_policy: "ask_when_multiple"
+  igxl:
+    enabled: false
 
 # Collection schema
 schema:
