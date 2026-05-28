@@ -112,6 +112,11 @@ retrieval:
     merge_adjacent: true
     remove_duplicates: true
     max_tokens: 4000
+  planner:
+    title_boost_factor: 0.15
+    glossary_enabled: true
+    auto_filter_enabled: true
+    context_enrichment_enabled: true
 
 # API server configuration
 api:

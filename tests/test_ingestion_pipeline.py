@@ -20,8 +20,8 @@ class TestDetectPlatform:
         assert IngestionPipeline._detect_platform(Path("v93000_setup.md")) == "V93000"
         assert IngestionPipeline._detect_platform(Path("smartest_guide.md")) == "V93000"
 
-    def test_detects_tdc(self) -> None:
-        assert IngestionPipeline._detect_platform(Path("tdc_overview.md")) == "TDC"
+    def test_detects_tdc_as_v93000_ecosystem(self) -> None:
+        assert IngestionPipeline._detect_platform(Path("tdc_overview.md")) == "V93000"
 
     def test_unknown_returns_empty(self) -> None:
         assert IngestionPipeline._detect_platform(Path("unknown.md")) == ""

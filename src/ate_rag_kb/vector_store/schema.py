@@ -11,6 +11,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     MatchAny,
+    MatchText,
     MatchValue,
     PayloadSchemaType,
     VectorParams,
@@ -85,14 +86,25 @@ def ensure_collection(client: QdrantClient, config: Any) -> None:
     create_payload_indexes(client, collection_name, fields)
 
 
-def build_filter(filters: dict[str, Any]) -> Filter | None:
-    """Build a Qdrant Filter from a dict of field->value mappings."""
+def build_filter(
+    filters: dict[str, Any],
+    text_fields: set[str] | None = None,
+) -> Filter | None:
+    """Build a Qdrant Filter from a dict of field->value mappings.
+
+    Args:
+        filters: Mapping of field names to values. Lists become ``MatchAny``.
+        text_fields: Optional set of field names that should use ``MatchText``
+            instead of ``MatchValue`` for string values.
+    """
     if not filters:
         return None
     conditions = []
     for field, value in filters.items():
         if isinstance(value, list):
             conditions.append(FieldCondition(key=field, match=MatchAny(any=value)))
+        elif isinstance(value, str) and text_fields and field in text_fields:
+            conditions.append(FieldCondition(key=field, match=MatchText(text=value)))
         else:
             conditions.append(FieldCondition(key=field, match=MatchValue(value=value)))
     return Filter(must=conditions) if conditions else None

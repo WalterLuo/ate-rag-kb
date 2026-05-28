@@ -110,6 +110,8 @@ class IngestionPipeline:
             metadata["tags"].append("smt7")
         elif source_md.startswith("v93000/") and "v93000" not in metadata["tags"]:
             metadata["tags"].append("v93000")
+        elif source_md.startswith("tdc/") and "tdc" not in metadata["tags"]:
+            metadata["tags"].append("tdc")
 
         # Enrich with toc_tree parent/child relationships
         source_html = metadata.get("source_html", "")
@@ -252,7 +254,9 @@ class IngestionPipeline:
         if "v93000" in name or "smartest" in name:
             return "V93000"
         if "tdc" in name:
-            return "TDC"
+            # TDC is a document family under the V93000/SmarTest ecosystem,
+            # not an independent tester platform.
+            return "V93000"
         return ""
 
     @staticmethod
