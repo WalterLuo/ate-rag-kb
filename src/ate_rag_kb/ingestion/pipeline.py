@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.chunking.strategies import HierarchicalChunker
 from ate_rag_kb.embedding.encoder import EmbeddingEncoder
 from ate_rag_kb.utils.config import Config
+from ate_rag_kb.utils.scope import DocumentScope
 from ate_rag_kb.vector_store.qdrant_client import QdrantVectorStore
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,19 @@ class IngestionPipeline:
 
         metadata["source_md"] = source_md
         metadata["source_json"] = source_json
+
+        # Detect ecosystem metadata
+        ecosystem = self._detect_ecosystem(source_md, metadata.get("doc_title", ""), metadata)
+        software_version = self._detect_software_version(source_md, metadata.get("doc_title", ""), metadata)
+        doc_family = self._detect_doc_family(source_md, metadata.get("doc_title", ""), metadata)
+
+        metadata["ecosystem"] = ecosystem
+        metadata["software_version"] = software_version
+        metadata["doc_family"] = doc_family
+
+        # Skip documents outside enabled scope
+        if not self._should_ingest(md_path, ecosystem, software_version):
+            return []
 
         # Derive platform tags from source path for downstream filtering
         if "tags" not in metadata:
@@ -249,7 +264,9 @@ class IngestionPipeline:
             return "J750"
         if "j750" in name or "ultraflex" in name:
             return "J750"
-        if "smt7" in name or "smt8" in name:
+        if "smt8" in name:
+            return "SMT8"
+        if "smt7" in name:
             return "SMT7"
         if "v93000" in name or "smartest" in name:
             return "V93000"
@@ -271,3 +288,100 @@ class IngestionPipeline:
         if any(k in name for k in ["guide", "tutorial", "getting started"]):
             return "guide"
         return "reference"
+
+    @staticmethod
+    def _detect_ecosystem(source_md: str, doc_title: str, json_meta: dict[str, Any]) -> str:
+        """Infer ecosystem from source path, filename, toc_path, title, or JSON metadata."""
+        name = source_md.lower()
+        if source_md.startswith("igxl/"):
+            return "igxl"
+        if "smartest64_7" in name or "smartest64_8" in name or "smt7/" in name or "smt8/" in name:
+            return "v93000"
+        if source_md.startswith("tdc/") or source_md.startswith("v93000/"):
+            return "v93000"
+
+        # Search toc_path and title for ecosystem indicators
+        haystacks = [doc_title, json_meta.get("title", "")]
+        haystacks.extend(json_meta.get("toc_path", []))
+        for text in haystacks:
+            text_lower = text.lower()
+            if "ig-xl" in text_lower or "igxl" in text_lower:
+                return "igxl"
+            if "smartest" in text_lower or "v93000" in text_lower:
+                return "v93000"
+
+        # Fallback to explicit JSON metadata
+        eco = json_meta.get("ecosystem", "")
+        if eco:
+            return eco
+        if IngestionPipeline._is_root_smt7_document(name):
+            return "v93000"
+        return ""
+
+    @staticmethod
+    def _detect_software_version(source_md: str, doc_title: str, json_meta: dict[str, Any]) -> str:
+        """Infer software version from source path, filename, toc_path, title, or JSON metadata."""
+        name = source_md.lower()
+        if source_md.startswith("smt7/") or "smartest64_7" in name:
+            return "smt7"
+        if source_md.startswith("smt8/") or "smartest64_8" in name:
+            return "smt8"
+
+        # Search toc_path and title for version indicators
+        haystacks = [doc_title, json_meta.get("title", "")]
+        haystacks.extend(json_meta.get("toc_path", []))
+        for text in haystacks:
+            text_lower = text.lower()
+            # Only match version numbers in V93000/SmarTest context
+            if "smartest" in text_lower or "smt" in text_lower or "v93000" in text_lower:
+                if any(v in text_lower for v in [" 7.", "7.4", "7.x", "7.0", "7.1", "7.2", "7.3", "7.5"]):
+                    return "smt7"
+                if any(v in text_lower for v in [" 8.", "8.x", "8.0", "8.1"]):
+                    return "smt8"
+
+        sv = json_meta.get("software_version", "")
+        if sv:
+            return sv
+        if IngestionPipeline._is_root_smt7_document(name):
+            return "smt7"
+        return ""
+
+    @staticmethod
+    def _detect_doc_family(source_md: str, doc_title: str, json_meta: dict[str, Any]) -> str:
+        """Infer document family from source path, toc_path, title, or JSON metadata."""
+        if source_md.startswith("igxl/"):
+            return "igxl_help"
+        if source_md.startswith("tdc/"):
+            return "tdc"
+
+        # Search toc_path and title for family indicators
+        haystacks = [doc_title, json_meta.get("title", "")]
+        haystacks.extend(json_meta.get("toc_path", []))
+        for text in haystacks:
+            text_lower = text.lower()
+            if "ig-xl" in text_lower or "igxl" in text_lower:
+                return "igxl_help"
+            if "tdc" in text_lower:
+                return "tdc"
+
+        df = json_meta.get("doc_family", "")
+        if df:
+            return df
+        return ""
+
+    @staticmethod
+    def _is_root_smt7_document(source_md_lower: str) -> bool:
+        """Return True for legacy root-level SmarTest 7 markdown files."""
+        if "/" in source_md_lower:
+            return False
+        if re.fullmatch(r"\d+(?:_\d+)?\.md", source_md_lower):
+            return True
+        return bool(
+            re.fullmatch(r"header_feature_rel7\.[^.]+(?:\.[^.]+)*\.md", source_md_lower)
+            or re.fullmatch(r"releasenote_.*rel7\.[^.]+(?:\.[^.]+)*\.md", source_md_lower)
+            or re.fullmatch(r"luna_7\.[^.]+(?:\.[^.]+)*\.readme\.md", source_md_lower)
+        )
+
+    def _should_ingest(self, path: Path, ecosystem: str, software_version: str) -> bool:
+        """Return False if document is outside enabled ecosystems or software versions."""
+        return DocumentScope(self.config).shouldIngest(path, ecosystem, software_version)

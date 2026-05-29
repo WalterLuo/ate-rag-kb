@@ -27,6 +27,7 @@ from ate_rag_kb.mcp.models import (
 )
 from ate_rag_kb.retrieval.pipeline import RetrievalPipeline
 from ate_rag_kb.retrieval.planner import RetrievalPlan, RetrievalPlanner
+from ate_rag_kb.utils.scope import DocumentScope
 
 logger = logging.getLogger(__name__)
 
@@ -409,7 +410,8 @@ class McpToolHandler:
             return [
                 (c, s)
                 for c, s in results
-                if not McpToolHandler._is_smt7_or_v93000_chunk(c)
+                if c.ecosystem != "v93000"
+                and not McpToolHandler._is_smt7_or_v93000_chunk(c)
                 and (
                     c.platform != "TDC" or c.source_md.lower().startswith("igxl/")
                 )
@@ -418,7 +420,8 @@ class McpToolHandler:
             return [
                 (c, s)
                 for c, s in results
-                if not c.source_md.lower().startswith("igxl/")
+                if c.ecosystem != "igxl"
+                and not c.source_md.lower().startswith("igxl/")
                 and c.platform != "J750"
             ]
         return results
@@ -482,15 +485,18 @@ class McpToolHandler:
         combined = self._filter_igxl_contamination(query, hinted + results)
         return combined[:max_results]
 
-    @staticmethod
-    def _source_hints_for_query(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def _source_hints_for_query(self, query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         normalized = query.lower()
         source_mds: list[str] = []
         matched_terms: list[str] = []
+        scope = DocumentScope(self.pipeline.config)
         for hint in _QUERY_SOURCE_HINTS:
             hint_matched = [term for term in hint["terms"] if term in normalized]
             if hint_matched:
-                source_mds.extend(hint["source_mds"])
+                for src in hint["source_mds"]:
+                    if src.lower().startswith("igxl/") and not scope.isIgxlEnabled():
+                        continue
+                    source_mds.append(src)
                 matched_terms.extend(hint_matched)
         return tuple(dict.fromkeys(matched_terms)), tuple(dict.fromkeys(source_mds))
 
@@ -564,6 +570,16 @@ class McpToolHandler:
         user_filters = args.get("filters") or None
 
         plan = self.planner.plan(query)
+
+        if plan.is_blocked:
+            return McpSearchResult(
+                query=query, total=0, chunks=[], sources=[], message=plan.block_reason or ""
+            )
+        if plan.is_ambiguous:
+            return McpSearchResult(
+                query=query, total=0, chunks=[], sources=[], message=plan.clarification_prompt or ""
+            )
+
         filters = self._merge_filters(plan.inferred_filters, user_filters)
 
         results: list[tuple[Chunk, float]] = await self.pipeline.search_enriched(
@@ -601,6 +617,16 @@ class McpToolHandler:
         max_tokens = args.get("max_tokens", 4000)
 
         plan = self.planner.plan(query)
+
+        if plan.is_blocked:
+            return McpRetrieveResult(
+                query=query, total=0, chunks=[], context_package=None, message=plan.block_reason or ""
+            )
+        if plan.is_ambiguous:
+            return McpRetrieveResult(
+                query=query, total=0, chunks=[], context_package=None, message=plan.clarification_prompt or ""
+            )
+
         filters = self._merge_filters(plan.inferred_filters, user_filters)
 
         results: list[tuple[Chunk, float]] = await self.pipeline.retrieve_enriched(
@@ -618,6 +644,7 @@ class McpToolHandler:
         results = await self._augment_with_source_hints(
             query, results, max_results=max_results
         )
+        results = self._apply_ecosystem_filter(query, results, plan)
         results = results[:max_results]
         chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
         context_package = build_context_package(results, max_tokens=max_tokens)
@@ -646,6 +673,30 @@ class McpToolHandler:
         include_context = args.get("include_context_package", True)
 
         plan = self.planner.plan(question)
+
+        if plan.is_blocked:
+            return McpAskResult(
+                question=question,
+                answer=plan.block_reason or "",
+                citations=[],
+                source_files=[],
+                toc_paths=[],
+                confidence="low",
+                context_package=None,
+                message=plan.block_reason or "",
+            )
+        if plan.is_ambiguous:
+            return McpAskResult(
+                question=question,
+                answer=plan.clarification_prompt or "",
+                citations=[],
+                source_files=[],
+                toc_paths=[],
+                confidence="low",
+                context_package=None,
+                message=plan.clarification_prompt or "",
+            )
+
         filters = self._merge_filters(plan.inferred_filters, user_filters)
 
         results: list[tuple[Chunk, float]] = await self.pipeline.search_enriched(
@@ -659,6 +710,7 @@ class McpToolHandler:
         results = await self._augment_with_source_hints(
             question, results, max_results=max_results
         )
+        results = self._apply_ecosystem_filter(question, results, plan)
         chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
 
         citations = [
@@ -768,6 +820,9 @@ class McpToolHandler:
                 embedding_model=stats.get("embedding_model", ""),
                 platforms=stats.get("platforms", []),
                 doc_types=stats.get("doc_types", []),
+                ecosystems=stats.get("ecosystems", []),
+                software_versions=stats.get("software_versions", []),
+                doc_families=stats.get("doc_families", []),
                 version="0.1.0",
             )
         except Exception as exc:

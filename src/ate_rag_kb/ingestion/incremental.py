@@ -25,11 +25,19 @@ def _compute_profile_key(config: Config) -> str:
     chunking strategy, and document scope so that switching any of them
     produces a separate state file and triggers a full rebuild.
     """
-    mode = config.get("vector_store.mode", "server")
-    collection = config.get("vector_store.collection_name", "ate_kb")
+    mode = config.get("vector_store.mode")
     url = config.get("vector_store.url", "")
+    host = config.get("vector_store.host", "localhost")
+    port = config.get("vector_store.port", 6333)
     local_path = config.get("vector_store.local_path", "")
-    endpoint = url if mode == "server" and url else local_path
+    use_local = config.get("vector_store.use_local", False)
+
+    # Normalize legacy mode
+    if mode is None:
+        mode = "local" if use_local else "server"
+
+    collection = config.get("vector_store.collection_name", "ate_kb")
+    endpoint = url if mode == "server" and url else (f"{host}:{port}" if mode == "server" else local_path)
     embedding_model = config.get("embedding.model_name", "")
     chunking_strategies = config.get("chunking.strategies", {})
     chunking_hash = hashlib.sha256(
@@ -53,17 +61,25 @@ def _get_state_file(config: Config) -> Path:
 
 def _build_profile(config: Config) -> dict[str, Any]:
     """Build the profile metadata dict stored inside the state file."""
-    mode = config.get("vector_store.mode", "server")
+    mode = config.get("vector_store.mode")
     url = config.get("vector_store.url", "")
+    host = config.get("vector_store.host", "localhost")
+    port = config.get("vector_store.port", 6333)
     local_path = config.get("vector_store.local_path", "")
-    endpoint = url if mode == "server" and url else local_path
+    use_local = config.get("vector_store.use_local", False)
+
+    # Normalize legacy mode
+    if mode is None:
+        mode = "local" if use_local else "server"
+
+    endpoint = url if mode == "server" and url else (f"{host}:{port}" if mode == "server" else local_path)
     documents = config.get("documents", {})
     return {
         "mode": mode,
         "collection_name": config.get("vector_store.collection_name", "ate_kb"),
         "endpoint": endpoint,
         "embedding_model": config.get("embedding.model_name", ""),
-        "schema_version": 1,
+        "schema_version": 2,
         "documents_hash": hashlib.sha256(
             json.dumps(documents, sort_keys=True).encode()
         ).hexdigest()[:16],
@@ -162,6 +178,7 @@ class IncrementalIngestion:
 
         state = self._load_state()
         file_states: dict[str, float] = state.get("files", {})
+        state["_profile"] = _build_profile(self.config)
 
         # Delete old chunks for modified files first
         for md_path in modified_files:

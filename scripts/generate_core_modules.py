@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Bootstrap script to generate all core ate-rag-kb modules."""
+"""Bootstrap script to generate all core ate-rag-kb modules.
+
+DEPRECATED: This script generates the original module scaffolds and does NOT
+include ecosystem/software_version/doc_family fields added in later phases.
+It is kept for historical reference but should not be used to regenerate
+production modules without manually adding the new metadata fields.
+"""
 
 from pathlib import Path
 
@@ -846,11 +852,10 @@ class ContextCompressor:
 
 
 def main() -> None:
-    for rel_path, content in FILES.items():
-        path = BASE / rel_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        print(f"Wrote {path}")
+    raise SystemExit(
+        "This bootstrap script is deprecated. It generates old scaffolds without "
+        "ecosystem/software_version/doc_family fields. Do not use for production."
+    )
 
 
 if __name__ == "__main__":

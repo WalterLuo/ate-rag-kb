@@ -28,6 +28,7 @@ class QdrantVectorStore:
 
     def __init__(self, config: Config | None = None) -> None:
         cfg = config or Config({})
+        self.config = cfg
         self.collection_name: str = cfg.get("vector_store.collection_name", "ate_kb")
         self.upsert_batch_size: int = cfg.get("vector_store.upsert_batch_size", 128)
         self.local_path: Path = Path(cfg.get("vector_store.local_path", "./data/qdrant_storage"))
@@ -55,9 +56,15 @@ class QdrantVectorStore:
         ensure_collection(self.client, cfg)
 
     def clear_collection(self) -> None:
-        """Delete all points from the collection."""
-        self.client.delete(collection_name=self.collection_name, points_selector=None)
-        logger.info("Cleared all points from collection '%s'.", self.collection_name)
+        """Delete and recreate the collection to clear all points and indexes."""
+        try:
+            self.client.delete_collection(collection_name=self.collection_name)
+            logger.info("Deleted collection '%s'.", self.collection_name)
+        except Exception:
+            logger.warning("Collection '%s' did not exist; nothing to delete.", self.collection_name)
+
+        ensure_collection(self.client, self.config)
+        logger.info("Recreated collection '%s' with schema.", self.collection_name)
 
     def upsert_chunks(self, chunks: list[Chunk]) -> None:
         """Batch upsert chunks with embeddings into Qdrant."""

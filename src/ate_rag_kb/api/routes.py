@@ -21,6 +21,7 @@ from ate_rag_kb.api.models import (
     SearchResponse,
 )
 from ate_rag_kb.chunking.models import Chunk
+from ate_rag_kb.retrieval.planner import RetrievalPlanner
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _retriever: Any | None = None
+_planner: RetrievalPlanner | None = None
 
 
 def set_retriever(retriever: Any) -> None:
@@ -39,10 +41,22 @@ def set_retriever(retriever: Any) -> None:
     _retriever = retriever
 
 
+def set_planner(planner: RetrievalPlanner) -> None:
+    """Inject the retrieval planner (called during app creation)."""
+    global _planner
+    _planner = planner
+
+
 def _ensure_retriever() -> Any:
     if _retriever is None:
         raise HTTPException(status_code=503, detail="Retrieval backend not initialized")
     return _retriever
+
+
+def _ensure_planner() -> RetrievalPlanner:
+    if _planner is None:
+        raise HTTPException(status_code=503, detail="Planner not initialized")
+    return _planner
 
 
 def _chunk_to_result(chunk: Chunk, score: float = 0.0) -> ChunkResult:
@@ -60,6 +74,9 @@ def _chunk_to_result(chunk: Chunk, score: float = 0.0) -> ChunkResult:
         platform=chunk.platform,
         doc_type=chunk.doc_type,
         tags=chunk.tags,
+        ecosystem=chunk.ecosystem,
+        software_version=chunk.software_version,
+        doc_family=chunk.doc_family,
         heading_level=chunk.heading_level,
         start_line=chunk.start_line,
         end_line=chunk.end_line,
@@ -81,10 +98,28 @@ def _chunk_to_result(chunk: Chunk, score: float = 0.0) -> ChunkResult:
 async def search(request: SearchRequest) -> SearchResponse:
     """Semantic search over the ATE knowledge base."""
     retriever = _ensure_retriever()
+    planner = _ensure_planner()
+
+    plan = planner.plan(request.query)
+    if plan.is_blocked:
+        return SearchResponse(
+            query=request.query, chunks=[], total=0, message=plan.block_reason or ""
+        )
+    if plan.is_ambiguous:
+        return SearchResponse(
+            query=request.query, chunks=[], total=0, message=plan.clarification_prompt or ""
+        )
+
+    filters = plan.inferred_filters or request.filters
+    if request.filters and plan.inferred_filters:
+        merged = dict(plan.inferred_filters)
+        merged.update(request.filters)
+        filters = merged
+
     results: list[tuple[Chunk, float]] = await retriever.search(
-        query=request.query,
+        query=plan.enhanced_query,
         top_k=request.top_k,
-        filters=request.filters,
+        filters=filters,
     )
     chunks = [_chunk_to_result(chunk, score) for chunk, score in results]
     return SearchResponse(
@@ -98,10 +133,40 @@ async def search(request: SearchRequest) -> SearchResponse:
 async def retrieve(request: RetrieveRequest) -> RetrieveResponse:
     """Advanced retrieval with parent-child expansion, reranking, and compression."""
     retriever = _ensure_retriever()
+    planner = _ensure_planner()
+
+    plan = planner.plan(request.query)
+    if plan.is_blocked:
+        return RetrieveResponse(
+            query=request.query,
+            chunks=[],
+            total=0,
+            reranked=False,
+            expanded=False,
+            compressed=False,
+            message=plan.block_reason or "",
+        )
+    if plan.is_ambiguous:
+        return RetrieveResponse(
+            query=request.query,
+            chunks=[],
+            total=0,
+            reranked=False,
+            expanded=False,
+            compressed=False,
+            message=plan.clarification_prompt or "",
+        )
+
+    filters = plan.inferred_filters or request.filters
+    if request.filters and plan.inferred_filters:
+        merged = dict(plan.inferred_filters)
+        merged.update(request.filters)
+        filters = merged
+
     results: list[tuple[Chunk, float]] = await retriever.retrieve(
-        query=request.query,
+        query=plan.enhanced_query,
         top_k=request.top_k,
-        filters=request.filters,
+        filters=filters,
         expand_parents=request.expand_parents,
         expand_siblings=request.expand_siblings,
         rerank=request.rerank,
@@ -122,10 +187,38 @@ async def retrieve(request: RetrieveRequest) -> RetrieveResponse:
 async def ask(request: AskRequest) -> AskResponse:
     """Agent-friendly Q&A endpoint with citations and source tracking."""
     retriever = _ensure_retriever()
+    planner = _ensure_planner()
+
+    plan = planner.plan(request.question)
+    if plan.is_blocked:
+        return AskResponse(
+            question=request.question,
+            chunks=[],
+            citations=[],
+            toc_paths=[],
+            source_files=[],
+            message=plan.block_reason or "",
+        )
+    if plan.is_ambiguous:
+        return AskResponse(
+            question=request.question,
+            chunks=[],
+            citations=[],
+            toc_paths=[],
+            source_files=[],
+            message=plan.clarification_prompt or "",
+        )
+
+    filters = plan.inferred_filters or request.filters
+    if request.filters and plan.inferred_filters:
+        merged = dict(plan.inferred_filters)
+        merged.update(request.filters)
+        filters = merged
+
     results: list[tuple[Chunk, float]] = await retriever.search(
-        query=request.question,
+        query=plan.enhanced_query,
         top_k=request.top_k,
-        filters=request.filters,
+        filters=filters,
     )
 
     chunks = [_chunk_to_result(chunk, score) for chunk, score in results]

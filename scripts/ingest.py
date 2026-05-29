@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Convenience script to run document ingestion."""
+"""Convenience script to run document ingestion.
+
+NOTE: This script always performs a FULL ingest and bypasses incremental
+state tracking. For incremental ingestion (only new/changed files), use:
+    uv run -m ate_rag_kb.cli.main ingest --dir <dir> --incremental
+"""
 
 from __future__ import annotations
 

@@ -15,12 +15,12 @@ class TestMcpToolHandler:
     @pytest.fixture
     def handler(self) -> McpToolHandler:
         pipeline = AsyncMock()
-        pipeline.config = Config({})
+        pipeline.config = Config({"documents": {"igxl": {"enabled": True}}})
         return McpToolHandler(pipeline)
 
     def _make_handler(self) -> McpToolHandler:
         pipeline = AsyncMock()
-        pipeline.config = Config({})
+        pipeline.config = Config({"documents": {"igxl": {"enabled": True}}})
         return McpToolHandler(pipeline)
 
     def _make_chunk(
@@ -511,9 +511,22 @@ class TestMcpToolHandler:
     def test_source_hints_for_igxl_weak_topics(
         self, query: str, expected_sources: tuple[str, ...]
     ) -> None:
-        _, source_mds = McpToolHandler._source_hints_for_query(query)
+        handler = self._make_handler()
+        _, source_mds = handler._source_hints_for_query(query)
         assert source_mds == expected_sources
         assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
+
+    def test_source_hints_drop_igxl_when_disabled(self) -> None:
+        pipeline = AsyncMock()
+        pipeline.config = Config({"documents": {"igxl": {"enabled": False}}})
+        handler = McpToolHandler(pipeline)
+        _, source_mds = handler._source_hints_for_query("DSIO200 VSSS")
+        assert source_mds == ()
+
+    def test_source_hints_preserve_igxl_when_enabled(self) -> None:
+        handler = self._make_handler()
+        _, source_mds = handler._source_hints_for_query("DSIO200 VSSS")
+        assert "igxl/patternlanguage/plinstruments.5.07.md" in source_mds
 
     def test_select_source_hint_chunk_prefers_term_match(self) -> None:
         chunk1 = Chunk(

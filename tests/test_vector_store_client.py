@@ -260,8 +260,8 @@ class TestQdrantVectorStore:
         qdrant_cls.assert_called_once_with(path="/tmp/qdrant_local")
 
     def test_clear_collection(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
-        store.clear_collection()
+        with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection") as mock_ensure:
+            store.clear_collection()
 
-        mock_client.delete.assert_called_once_with(
-            collection_name=store.collection_name, points_selector=None
-        )
+        mock_client.delete_collection.assert_called_once_with(collection_name=store.collection_name)
+        mock_ensure.assert_called_once()

@@ -57,9 +57,11 @@ def client(mock_retriever: AsyncMock) -> TestClient:
     config = Config({"logging": {"level": "INFO", "format": "json"}})
     app = create_app(config)
 
-    from ate_rag_kb.api.routes import set_retriever
+    from ate_rag_kb.api.routes import set_planner, set_retriever
+    from ate_rag_kb.retrieval.planner import RetrievalPlanner
 
     set_retriever(mock_retriever)
+    set_planner(RetrievalPlanner(config))
     return TestClient(app)
 
 

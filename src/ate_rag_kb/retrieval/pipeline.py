@@ -320,6 +320,9 @@ class RetrievalPipeline:
 
         platforms: set[str] = set()
         doc_types: set[str] = set()
+        ecosystems: set[str] = set()
+        software_versions: set[str] = set()
+        doc_families: set[str] = set()
         sample_limit = 1000
         sample_chunks: list[Chunk] = []
         try:
@@ -331,6 +334,12 @@ class RetrievalPipeline:
                     platforms.add(chunk.platform)
                 if chunk.doc_type:
                     doc_types.add(chunk.doc_type)
+                if chunk.ecosystem:
+                    ecosystems.add(chunk.ecosystem)
+                if chunk.software_version:
+                    software_versions.add(chunk.software_version)
+                if chunk.doc_family:
+                    doc_families.add(chunk.doc_family)
         except Exception:
             logger.exception("Failed to sample platforms/doc_types for stats")
 
@@ -341,5 +350,8 @@ class RetrievalPipeline:
             "embedding_model": embedding_model,
             "platforms": sorted(platforms),
             "doc_types": sorted(doc_types),
+            "ecosystems": sorted(ecosystems),
+            "software_versions": sorted(software_versions),
+            "doc_families": sorted(doc_families),
             "sampled_chunks": len(sample_chunks),
         }

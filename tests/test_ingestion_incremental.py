@@ -118,6 +118,16 @@ class TestIncrementalIngestion:
 
         assert incr.needs_full_rebuild() is False
 
+    def test_needs_full_rebuild_on_schema_version_change(self, markdown_dir: Path, state_file: Path, pipeline: object) -> None:
+        incr = IncrementalIngestion(pipeline, state_file=state_file)
+        current_profile = _build_profile(pipeline.config)
+        # Simulate old state with schema_version 1
+        old_profile = {**current_profile, "schema_version": 1}
+        state = {"_profile": old_profile, "files": {}}
+        incr.state_file.write_text(json.dumps(state))
+
+        assert incr.needs_full_rebuild() is True
+
     def test_legacy_state_renamed(self, tmp_path: Path, pipeline: object) -> None:
         legacy = tmp_path / "ingestion_state.json"
         legacy.write_text('{"doc.md": 1.0}')
@@ -126,7 +136,7 @@ class TestIncrementalIngestion:
         original_legacy = incr_mod.LEGACY_STATE_FILE
         try:
             incr_mod.LEGACY_STATE_FILE = legacy
-            incr = IncrementalIngestion(pipeline, state_file=tmp_path / "new_state.json")
+            IncrementalIngestion(pipeline, state_file=tmp_path / "new_state.json")
             assert not legacy.exists()
             assert (tmp_path / "ingestion_state.json.legacy").exists()
         finally:
@@ -146,4 +156,36 @@ class TestProfileKey:
     def test_different_documents_different_key(self) -> None:
         cfg1 = Config({"documents": {"enabled_ecosystems": ["v93000"]}})
         cfg2 = Config({"documents": {"enabled_ecosystems": ["v93000", "igxl"]}})
+        assert _compute_profile_key(cfg1) != _compute_profile_key(cfg2)
+
+    def test_server_mode_without_url_uses_host_port(self) -> None:
+        cfg = Config({"vector_store": {"mode": "server", "host": "qdrant", "port": 9999}})
+        profile = _build_profile(cfg)
+        assert profile["endpoint"] == "qdrant:9999"
+
+    def test_server_mode_with_url_uses_url(self) -> None:
+        cfg = Config({"vector_store": {"mode": "server", "url": "http://qdrant:6333"}})
+        profile = _build_profile(cfg)
+        assert profile["endpoint"] == "http://qdrant:6333"
+
+    def test_local_mode_uses_local_path(self) -> None:
+        cfg = Config({"vector_store": {"mode": "local", "local_path": "/tmp/qdrant"}})
+        profile = _build_profile(cfg)
+        assert profile["endpoint"] == "/tmp/qdrant"
+
+    def test_legacy_use_local_normalizes_to_local(self) -> None:
+        cfg = Config({"vector_store": {"use_local": True, "local_path": "/tmp/qdrant"}})
+        profile = _build_profile(cfg)
+        assert profile["mode"] == "local"
+        assert profile["endpoint"] == "/tmp/qdrant"
+
+    def test_legacy_no_mode_no_use_local_normalizes_to_server(self) -> None:
+        cfg = Config({"vector_store": {"host": "qdrant", "port": 9999}})
+        profile = _build_profile(cfg)
+        assert profile["mode"] == "server"
+        assert profile["endpoint"] == "qdrant:9999"
+
+    def test_different_servers_have_different_keys(self) -> None:
+        cfg1 = Config({"vector_store": {"mode": "server", "host": "qdrant1", "port": 6333}})
+        cfg2 = Config({"vector_store": {"mode": "server", "host": "qdrant2", "port": 6333}})
         assert _compute_profile_key(cfg1) != _compute_profile_key(cfg2)

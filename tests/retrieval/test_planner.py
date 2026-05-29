@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from ate_rag_kb.retrieval.planner import RetrievalPlanner
+from ate_rag_kb.utils.config import Config
 
 
 class TestRetrievalPlanner:
@@ -105,17 +106,19 @@ class TestRetrievalPlanner:
 
     def test_infer_filters_smt7(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("smt7 timing")
-        assert plan.inferred_filters == {"platform": "SMT7"}
+        assert plan.inferred_filters == {"ecosystem": "v93000", "software_version": ["smt7", ""]}
+
+    def test_infer_filters_smt8(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("smt8 timing")
+        assert plan.inferred_filters == {"ecosystem": "v93000", "software_version": ["smt8", ""]}
 
     def test_infer_filters_v93000(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("v93000 levels")
-        assert plan.inferred_filters == {"platform": "V93000"}
+        assert plan.inferred_filters == {"ecosystem": "v93000"}
 
     def test_infer_filters_tdc(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("tdc module creation")
-        # Legacy compatibility: TDC docs use platform="TDC" in old index,
-        # but TDC is logically a doc_family under v93000 ecosystem.
-        assert plan.inferred_filters == {"platform": ["SMT7", "V93000", "TDC"]}
+        assert plan.inferred_filters == {"ecosystem": "v93000", "doc_family": "tdc"}
 
     def test_infer_filters_neutral(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("general testing question")
@@ -126,7 +129,7 @@ class TestRetrievalPlanner:
     ) -> None:
         plan = planner.plan("flextest timing")
         assert plan.ecosystem == "v93000"
-        assert plan.inferred_filters == {"platform": ["SMT7", "V93000", "TDC"]}
+        assert plan.inferred_filters == {"ecosystem": "v93000"}
 
     # -------------------------------------------------------------------
     # TDC logical mapping
@@ -157,3 +160,72 @@ class TestRetrievalPlanner:
         assert plan.doc_family != "igxl_help"
         assert "Job List Sheet" not in plan.enhanced_query
         assert "DataTool Job List" not in plan.enhanced_query
+
+    # -------------------------------------------------------------------
+    # Block detection
+    # -------------------------------------------------------------------
+
+    def test_blocks_igxl_when_disabled(self) -> None:
+        planner = RetrievalPlanner(Config({"documents": {"igxl": {"enabled": False}}}))
+        plan = planner.plan("ig-xl job list")
+        assert plan.is_blocked is True
+        assert "not enabled" in (plan.block_reason or "").lower()
+
+    def test_allows_igxl_when_enabled(self) -> None:
+        planner = RetrievalPlanner(Config({"documents": {"igxl": {"enabled": True}}}))
+        plan = planner.plan("ig-xl job list")
+        assert plan.is_blocked is False
+
+    # -------------------------------------------------------------------
+    # Ambiguity detection
+    # -------------------------------------------------------------------
+
+    def test_ambiguous_when_both_smt7_smt8_enabled_and_vague(self) -> None:
+        planner = RetrievalPlanner(
+            Config(
+                {
+                    "documents": {
+                        "v93000": {
+                            "enabled_software_versions": ["smt7", "smt8"],
+                            "ambiguity_policy": "ask_when_multiple",
+                        }
+                    }
+                }
+            )
+        )
+        plan = planner.plan("smartest timing configuration")
+        assert plan.is_ambiguous is True
+        assert plan.clarification_prompt is not None
+        assert "smt7" in plan.clarification_prompt.lower() or "smt8" in plan.clarification_prompt.lower()
+
+    def test_not_ambiguous_when_specific_version_mentioned(self) -> None:
+        planner = RetrievalPlanner(
+            Config(
+                {
+                    "documents": {
+                        "v93000": {
+                            "enabled_software_versions": ["smt7", "smt8"],
+                            "ambiguity_policy": "ask_when_multiple",
+                        }
+                    }
+                }
+            )
+        )
+        plan = planner.plan("smt7 timing configuration")
+        assert plan.is_ambiguous is False
+
+    def test_not_ambiguous_when_only_one_version_enabled(self) -> None:
+        planner = RetrievalPlanner(
+            Config(
+                {
+                    "documents": {
+                        "v93000": {
+                            "enabled_software_versions": ["smt7"],
+                            "ambiguity_policy": "ask_when_multiple",
+                        }
+                    }
+                }
+            )
+        )
+        plan = planner.plan("smartest timing configuration")
+        assert plan.is_ambiguous is False

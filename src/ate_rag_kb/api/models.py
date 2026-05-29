@@ -22,6 +22,9 @@ class ChunkResult(BaseModel):
     platform: str = ""
     doc_type: str = ""
     tags: list[str] = Field(default_factory=list)
+    ecosystem: str = ""
+    software_version: str = ""
+    doc_family: str = ""
     heading_level: int = 0
     start_line: int = 0
     end_line: int = 0
@@ -50,6 +53,10 @@ class SearchResponse(BaseModel):
     query: str
     chunks: list[ChunkResult]
     total: int = Field(description="Total number of chunks returned")
+    message: str = Field(
+        default="",
+        description="Optional block/ambiguity/clarification message",
+    )
 
 
 class RetrieveRequest(BaseModel):
@@ -76,6 +83,10 @@ class RetrieveResponse(BaseModel):
     reranked: bool
     expanded: bool
     compressed: bool
+    message: str = Field(
+        default="",
+        description="Optional block/ambiguity/clarification message",
+    )
 
 
 class AskRequest(BaseModel):
@@ -114,6 +125,10 @@ class AskResponse(BaseModel):
     source_files: list[str] = Field(
         default_factory=list,
         description="Unique source markdown files",
+    )
+    message: str = Field(
+        default="",
+        description="Optional block/ambiguity/clarification message",
     )
 
 

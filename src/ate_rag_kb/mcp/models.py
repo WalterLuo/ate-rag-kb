@@ -19,6 +19,9 @@ class McpChunkResult(BaseModel):
     toc_path: list[str] = Field(default_factory=list, description="TOC hierarchy")
     platform: str = Field(default="", description="Platform (TDC, J750, etc.)")
     doc_type: str = Field(default="", description="Document type")
+    ecosystem: str = Field(default="", description="Ecosystem (v93000, igxl)")
+    software_version: str = Field(default="", description="Software version (smt7, smt8)")
+    doc_family: str = Field(default="", description="Document family (tdc, igxl_help)")
     heading_level: int = Field(default=0, description="Heading level")
     start_line: int = Field(default=0, description="Start line in source")
     end_line: int = Field(default=0, description="End line in source")
@@ -63,6 +66,10 @@ class McpSearchResult(BaseModel):
         default_factory=list,
         description="Unique source files ordered by relevance",
     )
+    message: str = Field(
+        default="",
+        description="Optional block/ambiguity/clarification message",
+    )
 
 
 class McpRetrieveResult(BaseModel):
@@ -76,6 +83,10 @@ class McpRetrieveResult(BaseModel):
     )
     chunks: list[McpChunkResult]
     context_package: McpContextPackage | None = None
+    message: str = Field(
+        default="",
+        description="Optional block/ambiguity/clarification message",
+    )
 
 
 class McpAskResult(BaseModel):
@@ -94,6 +105,10 @@ class McpAskResult(BaseModel):
         description="high / medium / low based on score distribution",
     )
     context_package: McpContextPackage | None = None
+    message: str = Field(
+        default="",
+        description="Optional block/ambiguity/clarification message",
+    )
 
 
 class McpRelatedResult(BaseModel):
@@ -129,4 +144,7 @@ class McpStatusResult(BaseModel):
     embedding_model: str = ""
     platforms: list[str] = Field(default_factory=list)
     doc_types: list[str] = Field(default_factory=list)
+    ecosystems: list[str] = Field(default_factory=list)
+    software_versions: list[str] = Field(default_factory=list)
+    doc_families: list[str] = Field(default_factory=list)
     version: str = "0.1.0"

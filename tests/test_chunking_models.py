@@ -16,6 +16,10 @@ class TestChunk:
             platform="TDC",
             doc_type="guide",
             tags=["tag1", "tag2"],
+            ecosystem="v93000",
+            software_version="smt7",
+            doc_family="tdc",
+            release_version="2024.1",
         )
         payload = chunk.to_payload()
 
@@ -25,6 +29,10 @@ class TestChunk:
         assert payload["platform"] == "TDC"
         assert payload["doc_type"] == "guide"
         assert payload["tags"] == ["tag1", "tag2"]
+        assert payload["ecosystem"] == "v93000"
+        assert payload["software_version"] == "smt7"
+        assert payload["doc_family"] == "tdc"
+        assert payload["release_version"] == "2024.1"
         assert "content" not in payload
 
     def test_to_payload_excludes_score(self) -> None:
@@ -47,6 +55,10 @@ class TestChunk:
             "score": 0.88,
             "tags": ["api", "reference"],
             "parent_id": "parent1",
+            "ecosystem": "v93000",
+            "software_version": "smt7",
+            "doc_family": "tdc",
+            "release_version": "2024.1",
         }
         chunk = Chunk.from_payload("chunk_id_1", payload)
 
@@ -58,6 +70,10 @@ class TestChunk:
         assert chunk.score == 0.88
         assert chunk.tags == ["api", "reference"]
         assert chunk.parent_id == "parent1"
+        assert chunk.ecosystem == "v93000"
+        assert chunk.software_version == "smt7"
+        assert chunk.doc_family == "tdc"
+        assert chunk.release_version == "2024.1"
 
     def test_from_payload_uses_defaults_for_missing_fields(self) -> None:
         payload = {"content": "minimal"}

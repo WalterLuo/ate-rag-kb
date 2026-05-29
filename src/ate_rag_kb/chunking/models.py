@@ -51,6 +51,12 @@ class Chunk:
     doc_type: str = ""  # reference, guide, api, flow
     tags: list[str] = field(default_factory=list)
 
+    # Ecosystem metadata
+    ecosystem: str = ""  # v93000, igxl
+    software_version: str = ""  # smt7, smt8
+    doc_family: str = ""  # tdc, igxl_help
+    release_version: str = ""  # e.g. 2024.1
+
     # Media
     images: list[dict] = field(default_factory=list)  # [{"path": "", "alt": "", "caption": ""}]
     tables: list[dict] = field(default_factory=list)  # [{"headers": [], "rows": []}]
@@ -86,6 +92,10 @@ class Chunk:
             "platform": self.platform,
             "doc_type": self.doc_type,
             "tags": self.tags,
+            "ecosystem": self.ecosystem,
+            "software_version": self.software_version,
+            "doc_family": self.doc_family,
+            "release_version": self.release_version,
             "images": self.images,
             "tables": self.tables,
             "code_blocks": self.code_blocks,
@@ -116,6 +126,10 @@ class Chunk:
             platform=payload.get("platform", ""),
             doc_type=payload.get("doc_type", ""),
             tags=payload.get("tags", []),
+            ecosystem=payload.get("ecosystem", ""),
+            software_version=payload.get("software_version", ""),
+            doc_family=payload.get("doc_family", ""),
+            release_version=payload.get("release_version", ""),
             images=payload.get("images", []),
             tables=payload.get("tables", []),
             code_blocks=payload.get("code_blocks", []),

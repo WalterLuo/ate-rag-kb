@@ -24,6 +24,9 @@ def _chunk_to_mcp(chunk: Chunk, score: float = 0.0, is_expanded: bool = False) -
         toc_path=chunk.toc_path,
         platform=chunk.platform,
         doc_type=chunk.doc_type,
+        ecosystem=chunk.ecosystem,
+        software_version=chunk.software_version,
+        doc_family=chunk.doc_family,
         heading_level=chunk.heading_level,
         start_line=chunk.start_line,
         end_line=chunk.end_line,
@@ -49,7 +52,12 @@ def build_context_package(
 
     for idx, (chunk, _score) in enumerate(chunks, start=1):
         header = f'[{idx}] From "{chunk.doc_title or "Unknown"}" > "{chunk.section_title or "Unknown"}"'
-        if chunk.platform:
+        if chunk.ecosystem:
+            eco = chunk.ecosystem
+            if chunk.software_version:
+                eco += f" / {chunk.software_version}"
+            header += f" ({eco})"
+        elif chunk.platform:
             header += f" ({chunk.platform})"
         header += ":\n"
 

@@ -75,8 +75,19 @@ async def _cmd_ingest(args: argparse.Namespace) -> int:
     )
 
     if args.incremental:
-        from ate_rag_kb.ingestion.incremental import IncrementalIngestion
-        incremental = IncrementalIngestion(pipeline)
+        from ate_rag_kb.ingestion.incremental import IncrementalIngestion, _get_state_file
+
+        state_file = _get_state_file(config)
+        incremental = IncrementalIngestion(pipeline, state_file=state_file)
+
+        if incremental.needs_full_rebuild():
+            logger.warning(
+                "Profile mismatch or first run detected. Clearing collection and performing full re-ingest."
+            )
+            pipeline.vector_store.clear_collection()
+            if incremental.state_file.exists():
+                incremental.state_file.unlink()
+
         stats = incremental.run_incremental(markdown_dir, json_dir=json_dir)
         logger.info("Incremental ingestion: %s", stats)
     else:

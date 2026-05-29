@@ -13,6 +13,7 @@ from typing import Any
 
 from ate_rag_kb.retrieval.glossary import GlossaryEntry, expand_query, match_glossary
 from ate_rag_kb.utils.config import Config
+from ate_rag_kb.utils.scope import DocumentScope
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,10 @@ class RetrievalPlan:
     title_match_terms: list[str]  # Proper nouns for title boosting
     is_igxl_query: bool
     is_v93000_smt7_query: bool
+    is_ambiguous: bool = False
+    clarification_prompt: str | None = None
+    is_blocked: bool = False
+    block_reason: str | None = None
 
 
 class RetrievalPlanner:
@@ -144,6 +149,7 @@ class RetrievalPlanner:
 
     def __init__(self, config: Config | None = None) -> None:
         self.config = config or Config({})
+        self.scope = DocumentScope(self.config)
         self._title_boost_factor = self.config.get(
             "retrieval.planner.title_boost_factor", 0.15
         )
@@ -197,6 +203,32 @@ class RetrievalPlanner:
         else:
             inferred_filters = None
 
+        # Block detection: IG-XL queries when IG-XL is disabled
+        is_blocked = False
+        block_reason = None
+        if ecosystem == "igxl" and not self.scope.isIgxlEnabled():
+            is_blocked = True
+            block_reason = "IG-XL documentation is not enabled in the current configuration."
+
+        # Ambiguity detection: smt7 vs smt8 when both enabled and query is vague
+        is_ambiguous = False
+        clarification_prompt = None
+        enabled_versions = self.scope.enabledSoftwareVersions("v93000")
+        if (
+            ecosystem == "v93000"
+            and len(enabled_versions) > 1
+            and self.scope.shouldAskWhenMultiple()
+        ):
+            normalized = query.lower()
+            has_version_specific = any(term in normalized for term in ("smt7", "smartest 7", "7.x", "smt8", "smartest 8", "8.x"))
+            has_vague_version = any(term in normalized for term in ("smartest", "smt", "version"))
+            if has_vague_version and not has_version_specific:
+                is_ambiguous = True
+                clarification_prompt = (
+                    "Your query mentions SmarTest but does not specify the software version. "
+                    "Please clarify whether you are asking about SMT7 or SMT8."
+                )
+
         return RetrievalPlan(
             original_query=query,
             enhanced_query=enhanced_query,
@@ -206,6 +238,10 @@ class RetrievalPlanner:
             title_match_terms=title_match_terms,
             is_igxl_query=ecosystem == "igxl",
             is_v93000_smt7_query=ecosystem == "v93000",
+            is_ambiguous=is_ambiguous,
+            clarification_prompt=clarification_prompt,
+            is_blocked=is_blocked,
+            block_reason=block_reason,
         )
 
     @staticmethod
@@ -325,9 +361,11 @@ class RetrievalPlanner:
     # Filter inference
     # -----------------------------------------------------------------------
 
-    @staticmethod
     def _infer_filters(
-        ecosystem: str | None, doc_family: str | None, query: str
+        self,
+        ecosystem: str | None,
+        doc_family: str | None,
+        query: str,
     ) -> dict[str, Any] | None:
         """Build Qdrant filters from detected ecosystem / doc_family."""
         normalized = query.lower()
@@ -338,21 +376,22 @@ class RetrievalPlanner:
             return None
 
         if ecosystem == "v93000":
-            # Legacy compatibility: old index uses platform="TDC" for TDC docs.
-            # TDC is logically a doc_family under the v93000 ecosystem.
-            # Use a broad filter so TDC docs are included without locking
-            # results to only TDC.
+            # TDC is a doc_family under the v93000 ecosystem.
             if doc_family == "tdc":
-                return {"platform": ["SMT7", "V93000", "TDC"]}
+                return {"ecosystem": "v93000", "doc_family": "tdc"}
 
-            # Direct platform terms
-            if "smt7" in normalized or "smartest 7" in normalized:
-                return {"platform": "SMT7"}
+            # Software version specific queries include general docs (empty software_version)
+            if "smt7" in normalized or "smartest 7" in normalized or "7.x" in normalized:
+                return {"ecosystem": "v93000", "software_version": ["smt7", ""]}
+            if "smt8" in normalized or "smartest 8" in normalized or "8.x" in normalized:
+                return {"ecosystem": "v93000", "software_version": ["smt8", ""]}
+
+            # General v93000 query
             if "v93000" in normalized:
-                return {"platform": "V93000"}
+                return {"ecosystem": "v93000"}
 
-            # If we know it's v93000 ecosystem but no specific platform,
-            # allow both SMT7 and V93000 (and TDC)
-            return {"platform": ["SMT7", "V93000", "TDC"]}
+            # If we know it's v93000 ecosystem but no specific version,
+            # allow all v93000 docs
+            return {"ecosystem": "v93000"}
 
         return None

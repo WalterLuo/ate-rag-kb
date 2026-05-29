@@ -284,6 +284,10 @@ class HierarchicalChunker:
                     platform=metadata.get("platform", ""),
                     doc_type=metadata.get("doc_type", ""),
                     tags=metadata.get("tags", []),
+                    ecosystem=metadata.get("ecosystem", ""),
+                    software_version=metadata.get("software_version", ""),
+                    doc_family=metadata.get("doc_family", ""),
+                    release_version=metadata.get("release_version", ""),
                     parent_id=parent_chunk.id,
                 )
             )
@@ -389,6 +393,10 @@ class HierarchicalChunker:
             platform=metadata.get("platform", ""),
             doc_type=metadata.get("doc_type", ""),
             tags=metadata.get("tags", []),
+            ecosystem=metadata.get("ecosystem", ""),
+            software_version=metadata.get("software_version", ""),
+            doc_family=metadata.get("doc_family", ""),
+            release_version=metadata.get("release_version", ""),
         )
 
     def _create_heading_chunk(
@@ -426,6 +434,10 @@ class HierarchicalChunker:
             platform=metadata.get("platform", ""),
             doc_type=metadata.get("doc_type", ""),
             tags=metadata.get("tags", []),
+            ecosystem=metadata.get("ecosystem", ""),
+            software_version=metadata.get("software_version", ""),
+            doc_family=metadata.get("doc_family", ""),
+            release_version=metadata.get("release_version", ""),
             parent_id=doc_id,
         )
 
@@ -455,6 +467,10 @@ class HierarchicalChunker:
             platform=metadata.get("platform", ""),
             doc_type=metadata.get("doc_type", ""),
             tags=metadata.get("tags", []),
+            ecosystem=metadata.get("ecosystem", ""),
+            software_version=metadata.get("software_version", ""),
+            doc_family=metadata.get("doc_family", ""),
+            release_version=metadata.get("release_version", ""),
             code_blocks=[{"language": cb["language"], "code": cb["code"]}],
             parent_id=parent.id,
         )
@@ -485,6 +501,10 @@ class HierarchicalChunker:
             platform=metadata.get("platform", ""),
             doc_type=metadata.get("doc_type", ""),
             tags=metadata.get("tags", []),
+            ecosystem=metadata.get("ecosystem", ""),
+            software_version=metadata.get("software_version", ""),
+            doc_family=metadata.get("doc_family", ""),
+            release_version=metadata.get("release_version", ""),
             tables=[{"headers": tbl["headers"], "rows": tbl["rows"]}],
             parent_id=parent.id,
         )
@@ -515,6 +535,10 @@ class HierarchicalChunker:
             platform=metadata.get("platform", ""),
             doc_type=metadata.get("doc_type", ""),
             tags=metadata.get("tags", []),
+            ecosystem=metadata.get("ecosystem", ""),
+            software_version=metadata.get("software_version", ""),
+            doc_family=metadata.get("doc_family", ""),
+            release_version=metadata.get("release_version", ""),
             images=[{"path": img["path"], "alt": img["alt"], "caption": ""}],
             parent_id=parent.id,
         )
