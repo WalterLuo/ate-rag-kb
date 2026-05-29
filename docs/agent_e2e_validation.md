@@ -258,10 +258,10 @@ Beta is considered **ready** when **all** of the following are true:
 | 8 | The 10-question beta checklist passes with citations for every answer |
 
 The first recorded beta trial is summarized in
-[Beta 10-Question Trial Report](beta_test_report_10q.md). Use that report as
+[Beta 10-Question Trial Report](archive/beta_test_report_10q.md). Use that report as
 the baseline for Q2 ARRAY citation regression and Q1/Q3/Q5 completeness checks.
 For the exact post-fix retest flow, use
-[Beta 10-Question Retest Plan](beta_retest_10q.md).
+[Beta 10-Question Retest Plan](archive/beta_retest_10q.md).
 
 ---
 

@@ -4,7 +4,7 @@
 
 当前状态：Beta 已可交付给工程师继续试用。第一次真实试用通过 9/10；在修复
 ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5 个重点问题已复测
-通过。复测证据记录在 `docs/10q_retest.csv`。
+通过。复测证据记录在 `docs/archive/10q_retest.csv`。
 
 ---
 
@@ -147,6 +147,6 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 - [ ] 所有失败案例已记录在上方的失败日志中
 
 第一次真实 Beta 试用结果见
-[Beta 10-Question Trial Report](beta_test_report_10q.md)。
+[Beta 10-Question Trial Report](archive/beta_test_report_10q.md)。
 修复后的复测流程见
-[Beta 10-Question Retest Plan](beta_retest_10q.md)。
+[Beta 10-Question Retest Plan](archive/beta_retest_10q.md)。

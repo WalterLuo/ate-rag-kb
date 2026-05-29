@@ -5,7 +5,7 @@ Use this checklist when onboarding engineers to the ATE RAG Knowledge Base.
 Current status: beta is ready for engineer handoff. The first recorded run
 passed 9/10 questions; the priority retest for questions 1-5 passed after the
 ARRAY citation, expected-answer coverage, and paginated document retrieval
-fixes. Retest evidence is recorded in `docs/10q_retest.csv`.
+fixes. Retest evidence is recorded in `docs/archive/10q_retest.csv`.
 
 ---
 
@@ -149,6 +149,6 @@ Beta is **approved** when all of the following are met:
 - [ ] Any failures are documented in the Failure Log above
 
 For the first recorded beta trial result, see
-[Beta 10-Question Trial Report](beta_test_report_10q.md).
+[Beta 10-Question Trial Report](archive/beta_test_report_10q.md).
 For the post-fix retest procedure, see
-[Beta 10-Question Retest Plan](beta_retest_10q.md).
+[Beta 10-Question Retest Plan](archive/beta_retest_10q.md).

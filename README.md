@@ -116,12 +116,12 @@ Offline mode fails fast with a clear error if either model cache is missing.
 
 ### Local Mode (Single-Process Dev Only)
 
-If you need local mode for quick debugging, set `use_local: true` in
+If you need local mode for quick debugging, set `mode: local` in
 `configs/config.yaml`:
 
 ```yaml
 vector_store:
-  use_local: true
+  mode: local
   local_path: "./data/qdrant_storage"
 ```
 
@@ -129,13 +129,30 @@ vector_store:
 > it at a time. Do **not** use local mode when running MCP + CLI + API
 > concurrently.
 
+## State Isolation and Profile Changes
+
+Incremental ingestion state is stored per profile (hash of backend mode,
+collection name, embedding model, chunking config, and document scope).
+Switching any of these settings automatically triggers a full re-ingest:
+
+- Old `data/processed/ingestion_state.json` is preserved as `.json.legacy`
+- A new profile-specific state file is created under `data/processed/state_{hash}.json`
+- The collection is cleared before the full rebuild to remove stale points
+
+## Document Scope
+
+By default, only V93000 / SmarTest 7 documents are ingested. To enable IG-XL,
+set `documents.igxl.enabled: true`; this is the authoritative IG-XL switch and
+does not require adding `"igxl"` to `documents.enabled_ecosystems`.
+
 ## Migration from Local Mode
 
 If you previously ingested into `./data/qdrant_storage/` (local mode) and want
 to switch to server mode:
 
-1. Start the Qdrant server (`docker compose up -d qdrant`).
-2. Re-run ingestion (server collections are independent of local files):
+1. Update `configs/config.yaml`: set `vector_store.mode: server`.
+2. Start the Qdrant server (`docker compose up -d qdrant`).
+3. Re-run ingestion (server collections are independent of local files):
    ```bash
    uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
    ```
@@ -192,16 +209,16 @@ Before using the KB with real engineers, run:
 
 1. [Agent E2E Validation](docs/agent_e2e_validation.md) — step-by-step verification
 2. [Beta Checklist](docs/beta_checklist.md) — 10-question trial with pass criteria
-3. [Beta 10-Question Trial Report](docs/beta_test_report_10q.md) — first recorded
-   engineer-facing trial result
-4. [Beta 10-Question Retest Plan](docs/beta_retest_10q.md) — post-fix retest
-   procedure
+3. [Beta 10-Question Trial Report](docs/archive/beta_test_report_10q.md) — archived
+   first engineer-facing trial result
+4. [Beta 10-Question Retest Plan](docs/archive/beta_retest_10q.md) — archived
+   post-fix retest procedure
 
 Current beta status: ready for engineer handoff. The first recorded trial
 passed 9/10 questions. After the ARRAY citation fix, expected-answer checklist
 updates, and paginated `get_document` implementation, the first five priority
 questions were retested and passed; evidence is recorded in
-[docs/10q_retest.csv](docs/10q_retest.csv).
+[docs/archive/10q_retest.csv](docs/archive/10q_retest.csv).
 
 Copy the example MCP config before starting:
 

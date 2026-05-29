@@ -39,18 +39,53 @@ uv run -m ate_rag_kb.cli.main status
 
 ### Local Mode (Not Recommended for Multi-Process)
 
-For single-process debugging only, set `use_local: true` in
+For single-process debugging only, set `mode: local` in
 `configs/config.yaml`:
 
 ```yaml
 vector_store:
-  use_local: true
+  mode: local
   local_path: "./data/qdrant_storage"
 ```
 
 > **Warning:** Local mode locks the storage directory. Running MCP + CLI + API
 > concurrently will trigger `portalocker.AlreadyLocked`. Use server mode for
 > any real workflow.
+
+### State Isolation and Profile Changes
+
+Incremental ingestion state is isolated per profile (hash of backend mode,
+collection name, embedding model, chunking config, and document scope).
+Switching any of these settings automatically triggers a full re-ingest:
+
+- Old `data/processed/ingestion_state.json` is preserved as `.json.legacy`
+- New profile-specific state files are created under `data/processed/state_{hash}.json`
+- The collection is cleared before the full rebuild to remove stale points
+
+### Document Scope and Software Versions
+
+The `documents` section in `configs/config.yaml` controls which ecosystems and
+software versions are ingested and searchable:
+
+```yaml
+documents:
+  enabled_ecosystems:
+    - "v93000"
+  v93000:
+    enabled_software_versions:
+      - "smt7"
+    include_general_docs: true
+    default_software_version: "ask"
+    ambiguity_policy: "ask_when_multiple"
+  igxl:
+    enabled: false
+```
+
+- **Enabling IG-XL:** set `documents.igxl.enabled: true`; this switch is authoritative
+  and does not require adding `"igxl"` to `enabled_ecosystems`
+- **Enabling SMT8:** add `"smt8"` to `documents.v93000.enabled_software_versions`
+- SMT7/SMT8 are modeled as `software_version` under the `v93000` ecosystem,
+  not as top-level platforms
 
 ## Claude Code Configuration
 
@@ -143,9 +178,9 @@ Before onboarding engineers, complete the formal validation steps:
 - [Agent E2E Validation](agent_e2e_validation.md) — confirm MCP discovery, tool
   calls, citations, and pagination
 - [Beta Checklist](beta_checklist.md) — 10-question trial with pass/fail criteria
-- [Beta 10-Question Trial Report](beta_test_report_10q.md) — first recorded
+- [Beta 10-Question Trial Report](archive/beta_test_report_10q.md) — archived first recorded
   engineer-facing trial result and follow-up acceptance gaps
-- [Beta 10-Question Retest Plan](beta_retest_10q.md) — post-fix retest flow
+- [Beta 10-Question Retest Plan](archive/beta_retest_10q.md) — archived post-fix retest flow
   for Q2 ARRAY, Q1/Q3/Q5 completeness, and pagination
 
 Quick-start MCP config:

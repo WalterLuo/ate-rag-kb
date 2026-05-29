@@ -109,24 +109,40 @@ embedding:
 
 ### Local Mode（仅限单进程开发）
 
-如需本地模式快速调试，在 `configs/config.yaml` 中设置 `use_local: true`：
+如需本地模式快速调试，在 `configs/config.yaml` 中设置 `mode: local`：
 
 ```yaml
 vector_store:
-  use_local: true
+  mode: local
   local_path: "./data/qdrant_storage"
 ```
 
 > 警告：Local mode 会锁定存储目录，同一时间只能有一个进程访问。
 > 运行 MCP + CLI + API 并发时**不要**使用 local mode。
 
+## 状态隔离与 Profile 变更
+
+增量导入状态按 profile 隔离（由后端模式、collection 名称、embedding 模型、
+分块配置、文档范围共同决定 hash）。切换任一配置会自动触发全量重建：
+
+- 旧的 `data/processed/ingestion_state.json` 会被保留为 `.json.legacy`
+- 新的 profile 专属状态文件会创建在 `data/processed/state_{hash}.json`
+- 重建前会自动清空 collection，防止旧数据残留
+
+## 文档范围
+
+默认只导入 V93000 / SmarTest 7 文档。如需启用 IG-XL，设置
+`documents.igxl.enabled: true` 即可；这是 IG-XL 的权威开关，不需要再把
+`"igxl"` 加入 `documents.enabled_ecosystems`。
+
 ## 从 Local Mode 迁移
 
 如果你之前使用 `./data/qdrant_storage/`（local mode）导入了数据，
 想切换到 server mode：
 
-1. 启动 Qdrant 服务器（`docker compose up -d qdrant`）。
-2. 重新运行导入（server collection 与本地文件相互独立）：
+1. 更新 `configs/config.yaml`：设置 `vector_store.mode: server`。
+2. 启动 Qdrant 服务器（`docker compose up -d qdrant`）。
+3. 重新运行导入（server collection 与本地文件相互独立）：
    ```bash
    uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
    ```
@@ -183,12 +199,12 @@ uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental
 
 1. [Agent 端到端验证](docs/agent_e2e_validation.md) — 逐步验证指南
 2. [Beta 试用清单](docs/beta_checklist_CN.md) — 含 10 个真实试用问题及通过标准
-3. [Beta 10-Question Trial Report](docs/beta_test_report_10q.md) — 第一次真实工程师试用结果
-4. [Beta 10-Question Retest Plan](docs/beta_retest_10q.md) — 修复后的复测流程
+3. [Beta 10-Question Trial Report](docs/archive/beta_test_report_10q.md) — 已归档的第一次真实工程师试用结果
+4. [Beta 10-Question Retest Plan](docs/archive/beta_retest_10q.md) — 已归档的修复后复测流程
 
 当前 Beta 状态：可交付给工程师继续试用。第一次真实试用通过 9/10；在修复
 ARRAY 引用、补充预期答案检查点、实现 `get_document` 分页读取后，前 5 个
-重点问题已复测通过，证据记录在 [docs/10q_retest.csv](docs/10q_retest.csv)。
+重点问题已复测通过，证据记录在 [docs/archive/10q_retest.csv](docs/archive/10q_retest.csv)。
 
 开始前复制 MCP 配置示例：
 

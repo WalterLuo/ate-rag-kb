@@ -4,9 +4,9 @@ This report records the first engineer-facing beta trial for the ATE RAG
 Knowledge Base. The trial validates whether an agent can answer real
 SmarTest/TDC questions through MCP tools with grounded citations.
 
-Source review file: `docs/CheckTable.numbers`
+Source review file: `docs/archive/CheckTable.numbers`
 
-Retest evidence file: `docs/10q_retest.csv`
+Retest evidence file: `docs/archive/10q_retest.csv`
 
 ## Summary
 
@@ -57,7 +57,7 @@ The current acceptance status is:
 ## Priority Retest Result
 
 After restarting the agent/MCP server with the latest code, the first five
-priority questions were retested and recorded in `docs/10q_retest.csv`. These
+priority questions were retested and recorded in `docs/archive/10q_retest.csv`. These
 questions covered the original ARRAY citation failure plus the Q1/Q3/Q5
 completeness improvements.
 
@@ -203,6 +203,6 @@ The beta gate for the next trial is:
 
 ## Retest Handoff
 
-The priority retest evidence is recorded in `docs/10q_retest.csv`. For future
+The priority retest evidence is recorded in `docs/archive/10q_retest.csv`. For future
 regression runs, use [Beta 10-Question Retest Plan](beta_retest_10q.md) after
 restarting the agent/MCP server.

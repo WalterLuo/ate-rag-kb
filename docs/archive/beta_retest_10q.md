@@ -7,7 +7,7 @@ that large documents are read through pagination.
 ## Current Retest Status
 
 The priority retest for questions 1-5 has been completed and recorded in
-`docs/10q_retest.csv`. All five retested questions passed with MCP usage,
+`docs/archive/10q_retest.csv`. All five retested questions passed with MCP usage,
 `source_md`, `section_title`, and no hallucination recorded. Questions 6-10
 passed in the first beta trial and were not repeated in this retest cycle.
 
