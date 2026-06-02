@@ -46,12 +46,17 @@ class Chunk:
     start_line: int = 0
     end_line: int = 0
 
+    # Canonical ATE metadata
+    vendor: str = ""  # teradyne, advantest
+    platform: str = ""  # j750, v93000
+    software: str = ""  # igxl, smt7, smt8
+    software_release: str = ""
+
     # ATE-specific metadata
-    platform: str = ""  # TDC, J750, SMT7, V93000
     doc_type: str = ""  # reference, guide, api, flow
     tags: list[str] = field(default_factory=list)
 
-    # Ecosystem metadata
+    # Legacy compatibility metadata
     ecosystem: str = ""  # v93000, igxl
     software_version: str = ""  # smt7, smt8
     doc_family: str = ""  # tdc, igxl_help
@@ -89,7 +94,10 @@ class Chunk:
             "heading_level": self.heading_level,
             "start_line": self.start_line,
             "end_line": self.end_line,
+            "vendor": self.vendor,
             "platform": self.platform,
+            "software": self.software,
+            "software_release": self.software_release,
             "doc_type": self.doc_type,
             "tags": self.tags,
             "ecosystem": self.ecosystem,
@@ -123,7 +131,10 @@ class Chunk:
             heading_level=payload.get("heading_level", 0),
             start_line=payload.get("start_line", 0),
             end_line=payload.get("end_line", 0),
+            vendor=payload.get("vendor", ""),
             platform=payload.get("platform", ""),
+            software=payload.get("software", ""),
+            software_release=payload.get("software_release", ""),
             doc_type=payload.get("doc_type", ""),
             tags=payload.get("tags", []),
             ecosystem=payload.get("ecosystem", ""),

@@ -46,6 +46,28 @@ class TestChunk:
 
         assert "score" not in payload
 
+    def test_canonical_metadata_round_trip(self) -> None:
+        chunk = Chunk(
+            id="canonical",
+            content="metadata",
+            chunk_type=ChunkType.PARAGRAPH,
+            vendor="teradyne",
+            platform="j750",
+            software="igxl",
+        )
+
+        payload = chunk.to_payload()
+
+        assert payload["vendor"] == "teradyne"
+        assert payload["platform"] == "j750"
+        assert payload["software"] == "igxl"
+        assert payload["software_release"] == ""
+        reconstructed = Chunk.from_payload(chunk.id, payload)
+        assert reconstructed.vendor == "teradyne"
+        assert reconstructed.platform == "j750"
+        assert reconstructed.software == "igxl"
+        assert reconstructed.software_release == ""
+
     def test_from_payload_reconstructs_chunk(self) -> None:
         payload = {
             "content": "reconstructed content",
