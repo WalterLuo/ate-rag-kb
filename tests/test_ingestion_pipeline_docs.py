@@ -22,26 +22,67 @@ class TestIngestDocument:
         return IngestionPipeline(cfg, encoder, vs)
 
     def test_ingest_document_no_json(self, pipeline: IngestionPipeline, tmp_path: Path) -> None:
-        md = tmp_path / "test.md"
+        md = tmp_path / "v93000" / "common.md"
+        md.parent.mkdir()
         md.write_text("# Hello\n\nworld")
         chunks = pipeline.ingest_document(md)
         assert len(chunks) > 0
         pipeline.vector_store.upsert_chunks.assert_called_once()
 
     def test_ingest_document_with_json(self, pipeline: IngestionPipeline, tmp_path: Path) -> None:
-        md = tmp_path / "test.md"
+        md = tmp_path / "v93000" / "smt7" / "test.md"
+        md.parent.mkdir(parents=True)
         md.write_text("# Hello")
         json_path = tmp_path / "test.json"
         json_path.write_text('{"title": "Test"}')
         chunks = pipeline.ingest_document(md, json_path)
         assert chunks[0].doc_title == "Test"
 
-    def test_ingest_document_sets_platform_and_doc_type(self, pipeline: IngestionPipeline, tmp_path: Path) -> None:
-        md = tmp_path / "test.md"
+    def test_ingest_document_sets_canonical_platform_and_doc_type(
+        self, pipeline: IngestionPipeline, tmp_path: Path
+    ) -> None:
+        md = tmp_path / "v93000" / "common.md"
+        md.parent.mkdir()
         md.write_text("content")
         chunks = pipeline.ingest_document(md, platform="TDC", doc_type="guide")
-        assert chunks[0].platform == "TDC"
+        assert chunks[0].platform == "v93000"
         assert chunks[0].doc_type == "guide"
+
+    def test_igxl_chunks_use_j750_igxl_scope(
+        self, pipeline: IngestionPipeline, tmp_path: Path
+    ) -> None:
+        md = tmp_path / "igxl" / "vbt" / "execSites.39.08.md"
+        md.parent.mkdir(parents=True)
+        md.write_text("# execSites")
+
+        chunks = pipeline._chunk_document(md)
+
+        assert {
+            (chunk.vendor, chunk.platform, chunk.software, chunk.software_release)
+            for chunk in chunks
+        } == {
+            ("teradyne", "j750", "igxl", "")
+        }
+        assert {(chunk.ecosystem, chunk.software_version) for chunk in chunks} == {("igxl", "")}
+
+    def test_smt7_chunks_use_v93000_smt7_scope(
+        self, pipeline: IngestionPipeline, tmp_path: Path
+    ) -> None:
+        md = tmp_path / "v93000" / "smt7" / "100096.md"
+        md.parent.mkdir(parents=True)
+        md.write_text("# SmarTest 7")
+
+        chunks = pipeline._chunk_document(md)
+
+        assert {
+            (chunk.vendor, chunk.platform, chunk.software, chunk.software_release)
+            for chunk in chunks
+        } == {
+            ("advantest", "v93000", "smt7", "")
+        }
+        assert {(chunk.ecosystem, chunk.software_version) for chunk in chunks} == {
+            ("v93000", "smt7")
+        }
 
 
 class TestIngestDirectory:
@@ -51,7 +92,8 @@ class TestIngestDirectory:
         encoder.encode.return_value = np.array([[0.1, 0.2]])
         vs = MagicMock()
         pipeline = IngestionPipeline(cfg, encoder, vs)
-        md = tmp_path / "doc.md"
+        md = tmp_path / "v93000" / "common.md"
+        md.parent.mkdir()
         md.write_text("content")
         total = pipeline.ingest_directory(tmp_path)
         assert total > 0
@@ -73,10 +115,13 @@ class TestIngestDirectory:
         encoder.encode.return_value = np.array([[0.1, 0.2]])
         vs = MagicMock()
         pipeline = IngestionPipeline(cfg, encoder, vs)
-        md = tmp_path / "doc.md"
+        md = tmp_path / "v93000" / "smt7" / "doc.md"
+        md.parent.mkdir(parents=True)
         md.write_text("content")
         json_dir = tmp_path / "json"
         json_dir.mkdir()
-        (json_dir / "doc.json").write_text('{"title": "Doc"}')
+        json_path = json_dir / "v93000" / "smt7" / "doc.json"
+        json_path.parent.mkdir(parents=True)
+        json_path.write_text('{"title": "Doc"}')
         total = pipeline.ingest_directory(tmp_path, json_dir)
         assert total > 0

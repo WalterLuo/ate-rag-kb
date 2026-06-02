@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ate_rag_kb.domain.scopes import ADVANTEST_V93000_SMT7, TERADYNE_J750_IGXL
 from ate_rag_kb.ingestion.pipeline import IngestionPipeline
 from ate_rag_kb.utils.config import Config
 
@@ -17,10 +18,10 @@ class TestDetectPlatform:
         assert IngestionPipeline._detect_platform(Path("ultraflex_ref.md")) == "J750"
 
     def test_detects_smt7(self) -> None:
-        assert IngestionPipeline._detect_platform(Path("smt7_api.md")) == "SMT7"
+        assert IngestionPipeline._detect_platform(Path("smt7_api.md")) == "V93000"
 
     def test_detects_smt8(self) -> None:
-        assert IngestionPipeline._detect_platform(Path("smt8_flow.md")) == "SMT8"
+        assert IngestionPipeline._detect_platform(Path("smt8_flow.md")) == "V93000"
 
     def test_detects_v93000(self) -> None:
         assert IngestionPipeline._detect_platform(Path("v93000_setup.md")) == "V93000"
@@ -164,6 +165,30 @@ class TestDetectSoftwareVersion:
         assert IngestionPipeline._detect_software_version("HEADER_FEATURE_rel7.2.2.md", "", {}) == "smt7"
         assert IngestionPipeline._detect_software_version("RELEASENOTE_Platform_rel7.3.1.md", "", {}) == "smt7"
         assert IngestionPipeline._detect_software_version("luna_7.2.0.3.readme.md", "", {}) == "smt7"
+
+
+class TestDetectScope:
+    def test_detects_igxl_scope(self) -> None:
+        pipeline = IngestionPipeline(Config({}), MagicMock(), MagicMock())
+
+        assert pipeline._detect_scope("igxl/vbt/execSites.39.08.md", "", {}) == TERADYNE_J750_IGXL
+
+    def test_detects_root_smt7_scope_from_toc_metadata(self) -> None:
+        pipeline = IngestionPipeline(Config({}), MagicMock(), MagicMock())
+
+        assert (
+            pipeline._detect_scope(
+                "20847.md",
+                "",
+                {"toc_path": ["SmarTest 7.4.3 Documentation", "System Reference"]},
+            )
+            == ADVANTEST_V93000_SMT7
+        )
+
+    def test_unknown_document_has_no_scope(self) -> None:
+        pipeline = IngestionPipeline(Config({}), MagicMock(), MagicMock())
+
+        assert pipeline._detect_scope("misc/overview.md", "", {}) is None
 
 
 class TestDetectDocFamily:

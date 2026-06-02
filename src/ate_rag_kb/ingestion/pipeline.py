@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.chunking.strategies import HierarchicalChunker
+from ate_rag_kb.domain.scopes import RetrievalScope, TERADYNE_J750_IGXL
 from ate_rag_kb.embedding.encoder import EmbeddingEncoder
 from ate_rag_kb.utils.config import Config
 from ate_rag_kb.utils.scope import DocumentScope
@@ -103,17 +104,28 @@ class IngestionPipeline:
         metadata["source_md"] = source_md
         metadata["source_json"] = source_json
 
-        # Detect ecosystem metadata
-        ecosystem = self._detect_ecosystem(source_md, metadata.get("doc_title", ""), metadata)
-        software_version = self._detect_software_version(source_md, metadata.get("doc_title", ""), metadata)
+        # Detect canonical scope and preserve compatibility metadata.
+        scope = self._detect_scope(source_md, metadata.get("doc_title", ""), metadata)
+        vendor = scope.vendor if scope else ""
+        canonical_platform = scope.platform if scope else ""
+        software = scope.software if scope else ""
+        software_release = scope.software_release if scope else ""
+        ecosystem = (
+            "igxl" if software == "igxl" else "v93000" if canonical_platform == "v93000" else ""
+        )
+        software_version = software if software in {"smt7", "smt8"} else ""
         doc_family = self._detect_doc_family(source_md, metadata.get("doc_title", ""), metadata)
 
+        metadata["vendor"] = vendor
+        metadata["platform"] = canonical_platform
+        metadata["software"] = software
+        metadata["software_release"] = software_release
         metadata["ecosystem"] = ecosystem
         metadata["software_version"] = software_version
         metadata["doc_family"] = doc_family
 
         # Skip documents outside enabled scope
-        if not self._should_ingest(md_path, ecosystem, software_version):
+        if not DocumentScope(self.config).should_ingest_scope(md_path, scope):
             return []
 
         # Derive platform tags from source path for downstream filtering
@@ -153,9 +165,12 @@ class IngestionPipeline:
             metadata=metadata,
         )
 
+        # Keep the platform argument for legacy callers; canonical scope wins for ingested docs.
         for chunk in chunks:
-            if not chunk.platform:
-                chunk.platform = platform
+            chunk.vendor = vendor
+            chunk.platform = canonical_platform
+            chunk.software = software
+            chunk.software_release = software_release
             if not chunk.doc_type:
                 chunk.doc_type = doc_type
 
@@ -264,11 +279,9 @@ class IngestionPipeline:
             return "J750"
         if "j750" in name or "ultraflex" in name:
             return "J750"
-        if "smt8" in name:
-            return "SMT8"
-        if "smt7" in name:
-            return "SMT7"
-        if "v93000" in name or "smartest" in name:
+        if "smt8" in path_str or "smt7" in path_str:
+            return "V93000"
+        if "v93000" in path_str or "smartest" in name:
             return "V93000"
         if "tdc" in name:
             # TDC is a document family under the V93000/SmarTest ecosystem,
@@ -322,9 +335,17 @@ class IngestionPipeline:
     def _detect_software_version(source_md: str, doc_title: str, json_meta: dict[str, Any]) -> str:
         """Infer software version from source path, filename, toc_path, title, or JSON metadata."""
         name = source_md.lower()
-        if source_md.startswith("smt7/") or "smartest64_7" in name:
+        if (
+            source_md.startswith("v93000/smt7/")
+            or source_md.startswith("smt7/")
+            or "smartest64_7" in name
+        ):
             return "smt7"
-        if source_md.startswith("smt8/") or "smartest64_8" in name:
+        if (
+            source_md.startswith("v93000/smt8/")
+            or source_md.startswith("smt8/")
+            or "smartest64_8" in name
+        ):
             return "smt8"
 
         # Search toc_path and title for version indicators
@@ -345,6 +366,21 @@ class IngestionPipeline:
         if IngestionPipeline._is_root_smt7_document(name):
             return "smt7"
         return ""
+
+    def _detect_scope(
+        self,
+        source_md: str,
+        doc_title: str,
+        metadata: dict[str, Any],
+    ) -> RetrievalScope | None:
+        """Infer canonical retrieval scope while retaining metadata-aware detection."""
+        ecosystem = self._detect_ecosystem(source_md, doc_title, metadata)
+        software = self._detect_software_version(source_md, doc_title, metadata)
+        if ecosystem == "igxl":
+            return TERADYNE_J750_IGXL
+        if ecosystem == "v93000":
+            return RetrievalScope("advantest", "v93000", software)
+        return None
 
     @staticmethod
     def _detect_doc_family(source_md: str, doc_title: str, json_meta: dict[str, Any]) -> str:
