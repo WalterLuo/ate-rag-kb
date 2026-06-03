@@ -19,7 +19,10 @@ class ChunkResult(BaseModel):
     subsection_title: str = ""
     source_md: str = ""
     toc_path: list[str] = Field(default_factory=list)
+    vendor: str = ""
     platform: str = ""
+    software: str = ""
+    software_release: str = ""
     doc_type: str = ""
     tags: list[str] = Field(default_factory=list)
     ecosystem: str = ""
@@ -47,12 +50,25 @@ class SearchRequest(BaseModel):
     )
 
 
+class ResolvedScope(BaseModel):
+    """Canonical retrieval scope used by HTTP retrieval endpoints."""
+
+    vendor: str
+    platform: str
+    software: str
+    software_release: str = ""
+
+
 class SearchResponse(BaseModel):
     """Response for semantic search."""
 
     query: str
     chunks: list[ChunkResult]
     total: int = Field(description="Total number of chunks returned")
+    answer_mode: str = "direct"
+    resolved_scopes: list[ResolvedScope] = Field(default_factory=list)
+    correction_notice: str = ""
+    clarification_prompt: str = ""
     message: str = Field(
         default="",
         description="Optional block/ambiguity/clarification message",
@@ -83,6 +99,10 @@ class RetrieveResponse(BaseModel):
     reranked: bool
     expanded: bool
     compressed: bool
+    answer_mode: str = "direct"
+    resolved_scopes: list["ResolvedScope"] = Field(default_factory=list)
+    correction_notice: str = ""
+    clarification_prompt: str = ""
     message: str = Field(
         default="",
         description="Optional block/ambiguity/clarification message",
@@ -126,6 +146,10 @@ class AskResponse(BaseModel):
         default_factory=list,
         description="Unique source markdown files",
     )
+    answer_mode: str = "direct"
+    resolved_scopes: list[ResolvedScope] = Field(default_factory=list)
+    correction_notice: str = ""
+    clarification_prompt: str = ""
     message: str = Field(
         default="",
         description="Optional block/ambiguity/clarification message",

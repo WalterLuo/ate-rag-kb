@@ -9,6 +9,16 @@ from fastapi.testclient import TestClient
 
 from ate_rag_kb.api.server import create_app
 from ate_rag_kb.chunking.models import Chunk, ChunkType
+from ate_rag_kb.domain.scopes import (
+    ADVANTEST_V93000_SMT7,
+    ADVANTEST_V93000_SMT8,
+    TERADYNE_J750_IGXL,
+)
+from ate_rag_kb.ingestion.symbol_catalog import SymbolCatalog
+from ate_rag_kb.retrieval.coordinator import RetrievalCoordinator
+from ate_rag_kb.retrieval.pipeline import ScopedPipelineResult
+from ate_rag_kb.retrieval.planner import RetrievalPlanner
+from ate_rag_kb.retrieval.routing import ScopeRouter
 from ate_rag_kb.utils.config import Config
 
 
@@ -57,12 +67,50 @@ def client(mock_retriever: AsyncMock) -> TestClient:
     config = Config({"logging": {"level": "INFO", "format": "json"}})
     app = create_app(config)
 
-    from ate_rag_kb.api.routes import set_planner, set_retriever
+    from ate_rag_kb.api.routes import set_coordinator, set_planner, set_retriever
     from ate_rag_kb.retrieval.planner import RetrievalPlanner
 
+    set_coordinator(None)
     set_retriever(mock_retriever)
     set_planner(RetrievalPlanner(config))
     return TestClient(app)
+
+
+def _coordinated_client(include_smt8: bool = False) -> tuple[TestClient, AsyncMock]:
+    config = Config({"logging": {"level": "INFO", "format": "json"}})
+    app = create_app(config)
+    pipeline = AsyncMock()
+    scopes = [TERADYNE_J750_IGXL, ADVANTEST_V93000_SMT7]
+    if include_smt8:
+        scopes.append(ADVANTEST_V93000_SMT8)
+
+    async def retrieve_scope(**kwargs):
+        scope = kwargs["scope"]
+        chunk = Chunk(
+            id=scope.key.replace("/", "-"),
+            content=f"{scope.key} content",
+            chunk_type=ChunkType.PARAGRAPH,
+            source_md=f"{scope.platform}/{scope.software}/doc.md",
+            doc_title=f"{scope.platform} {scope.software}",
+            vendor=scope.vendor,
+            platform=scope.platform,
+            software=scope.software,
+        )
+        return ScopedPipelineResult(chunks=[(chunk, 0.9)], processing={})
+
+    pipeline.retrieve_scope = AsyncMock(side_effect=retrieve_scope)
+    pipeline.search_scope = AsyncMock(side_effect=retrieve_scope)
+    coordinator = RetrievalCoordinator(
+        ScopeRouter(tuple(scopes), SymbolCatalog.empty()),
+        RetrievalPlanner(Config({})),
+        pipeline,
+    )
+    from ate_rag_kb.api.routes import set_coordinator, set_planner, set_retriever
+
+    set_retriever(pipeline)
+    set_planner(RetrievalPlanner(config))
+    set_coordinator(coordinator)
+    return TestClient(app), pipeline
 
 
 class TestHealth:
@@ -95,6 +143,20 @@ class TestSearch:
         response = client.post("/api/v1/search", json={"query": ""})
 
         assert response.status_code == 422
+
+    def test_search_returns_coordinated_scopes(self) -> None:
+        client, pipeline = _coordinated_client()
+
+        response = client.post("/api/v1/search", json={"query": "多 site 串行处理怎么实现？"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["answer_mode"] == "platform_comparison"
+        assert data["resolved_scopes"] == [
+            {"vendor": "teradyne", "platform": "j750", "software": "igxl", "software_release": ""},
+            {"vendor": "advantest", "platform": "v93000", "software": "smt7", "software_release": ""},
+        ]
+        assert pipeline.search_scope.call_count == 2
 
 
 class TestRetrieve:
@@ -139,6 +201,19 @@ class TestAsk:
         response = client.post("/api/v1/ask", json={"question": ""})
 
         assert response.status_code == 422
+
+    def test_ask_returns_clarification_without_chunks(self) -> None:
+        client, pipeline = _coordinated_client(include_smt8=True)
+
+        response = client.post("/api/v1/ask", json={"question": "V93000 site control 怎么用？"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["answer_mode"] == "clarification"
+        assert "SMT7" in data["clarification_prompt"]
+        assert "SMT8" in data["clarification_prompt"]
+        assert data["chunks"] == []
+        pipeline.retrieve_scope.assert_not_called()
 
 
 class TestRelated:
