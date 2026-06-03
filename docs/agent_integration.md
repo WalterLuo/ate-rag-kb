@@ -64,28 +64,54 @@ Switching any of these settings automatically triggers a full re-ingest:
 
 ### Document Scope and Software Versions
 
-The `documents` section in `configs/config.yaml` controls which ecosystems and
-software versions are ingested and searchable:
+ATE documentation uses canonical vendor, tester platform, and software scopes:
+
+| Vendor | Tester platform | Software |
+|---|---|---|
+| Advantest | V93000 | SMT7, SMT8 |
+| Teradyne | J750 | IG-XL |
+
+The `documents` section in `configs/config.yaml` controls which scopes are
+ingested and searchable. When `documents.enabled_scopes` is present, it is the
+authoritative scope list:
 
 ```yaml
 documents:
-  enabled_ecosystems:
-    - "v93000"
-  v93000:
-    enabled_software_versions:
-      - "smt7"
-    include_general_docs: true
-    default_software_version: "ask"
-    ambiguity_policy: "ask_when_multiple"
-  igxl:
-    enabled: false
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
 ```
 
-- **Enabling IG-XL:** set `documents.igxl.enabled: true`; this switch is authoritative
-  and does not require adding `"igxl"` to `enabled_ecosystems`
-- **Enabling SMT8:** add `"smt8"` to `documents.v93000.enabled_software_versions`
-- SMT7/SMT8 are modeled as `software_version` under the `v93000` ecosystem,
-  not as top-level platforms
+- **Adding SMT8:** add a scope with `vendor: "advantest"`, `platform: "v93000"`,
+  and `software: "smt8"`.
+- **Removing IG-XL:** remove the `teradyne / j750 / igxl` scope, then run a full
+  ingest so stale chunks from the previous scope are cleared.
+- SMT7 and SMT8 are software under the V93000 tester platform. IG-XL is software
+  under the J750 tester platform. None of these software names should be treated
+  as top-level tester platforms.
+
+### Query Routing Rules
+
+Agents should let the KB route platform scope automatically:
+
+- Explicit software or platform resolves to one scope, such as `SMT7` to
+  `v93000/smt7` or `IG-XL` to `j750/igxl`.
+- Exclusive symbols resolve to the generated symbol-catalog owner scope, such
+  as `SelectFirst` to `j750/igxl` and `ON_FIRST_INVOCATION_BEGIN` to
+  `v93000/smt7`.
+- Wrong platform plus exclusive symbol returns a correction notice and answers
+  from the symbol owner scope only.
+- A neutral query with IG-XL plus SMT7 enabled returns two isolated answer
+  sections: `J750 / IG-XL` and `V93000 / SMT7`.
+- When SMT7 and SMT8 are both enabled, a query that says only `V93000` asks the
+  user to choose the software version.
+- After SMT8 enablement, a neutral query across J750 and V93000 asks the user to
+  choose the tester platform first unless the user explicitly asks for two
+  answers.
 
 ## Claude Code Configuration
 

@@ -18,6 +18,44 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 - [ ] `data/qdrant_storage/` 存在
 - [ ] `uv run -m ate_rag_kb.cli.main status` 返回 `ok` 且 `total_chunks > 0`
 
+### 多平台生产重建与门禁
+
+用于验证 IG-XL / J750 与 SMT7 / V93000 不再互相污染。规范术语如下：
+
+| 厂商 | 测试平台 | 软件 |
+|------|----------|------|
+| Advantest | V93000 | SMT7、SMT8 |
+| Teradyne | J750 | IG-XL |
+
+- [ ] `configs/config.yaml` 的 `documents.enabled_scopes` 至少包含
+  `teradyne / j750 / igxl` 和 `advantest / v93000 / smt7`
+- [ ] Qdrant server 可连接：
+  ```bash
+  uv run -m ate_rag_kb.cli.main status
+  ```
+- [ ] 执行全量重建：
+  ```bash
+  uv run -m ate_rag_kb.cli.main ingest --dir data/raw/markdown
+  ```
+- [ ] 运行 deterministic acceptance matrix：
+  ```bash
+  uv run python -m pytest tests/retrieval/test_multi_platform_acceptance.py -q
+  ```
+- [ ] 验证重建产物和运行时检索行为：
+  ```bash
+  uv run scripts/validate_multi_platform_retrieval.py
+  ```
+- [ ] 重启 MCP server 后，通过 `ate_kb.ask` 验证以下查询：
+  `IG-XL 多 site 串行处理怎么实现？`、`SMT7 Site Control 怎么用？`、
+  `多 site 串行处理怎么实现？`、`SMT7 SelectFirst 怎么用？`
+- [ ] 验证 IG-XL 答案引用 `igxl/vbt/execSites.39.08.md`、
+  `igxl/vbt/execSites.39.09.md`、`igxl/vbt/execSites.39.45.md`，且包含
+  `SelectFirst`、`SelectNext`、`loopDone`
+- [ ] 验证 SMT7 答案引用 SMT7 来源，包含 `ON_FIRST_INVOCATION_BEGIN`，
+  且不混入 `SelectFirst`
+- [ ] 验证中性查询输出两段隔离答案：`J750 / IG-XL` 与 `V93000 / SMT7`
+- [ ] 验证 `SMT7 SelectFirst 怎么用？` 会给出纠正提示，并只从 IG-XL 来源回答
+
 ---
 
 ## B. MCP 配置

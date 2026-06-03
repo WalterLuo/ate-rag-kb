@@ -21,6 +21,16 @@ placed under `./data/raw/markdown/`.
 |----------|---------|---------|
 | ADVANTEST V93000 | SmarTest 7.4.3 / 7.10.11 | PinConfig, Level, Timing, Test Flow, SmartRDI, TML, DPS, PMU, Digital, TMU, RF |
 
+**Canonical ATE terminology:**
+
+| Vendor | Tester platform | Software |
+|---|---|---|
+| Advantest | V93000 | SMT7, SMT8 |
+| Teradyne | J750 | IG-XL |
+
+V93000 and J750 are tester platforms. SMT7, SMT8, and IG-XL are software
+scopes used for ingestion, retrieval routing, and citation isolation.
+
 **First-time setup (approx. 15-30 min):**
 
 ```bash
@@ -141,9 +151,24 @@ Switching any of these settings automatically triggers a full re-ingest:
 
 ## Document Scope
 
-By default, only V93000 / SmarTest 7 documents are ingested. To enable IG-XL,
-set `documents.igxl.enabled: true`; this is the authoritative IG-XL switch and
-does not require adding `"igxl"` to `documents.enabled_ecosystems`.
+ATE documentation is scoped by `vendor`, tester `platform`, and `software`.
+When `documents.enabled_scopes` is present in `configs/config.yaml`, it is the
+authoritative list of searchable scopes. The current multi-platform profile is:
+
+```yaml
+documents:
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
+```
+
+SMT8 should be added as `advantest / v93000 / smt8`, not as a separate tester
+platform. After changing scope configuration, run a full ingest so stale chunks
+from previously enabled scopes are cleared.
 
 ## Migration from Local Mode
 

@@ -16,6 +16,16 @@
 |------|------|------|
 | ADVANTEST V93000 | SmarTest 7.4.3 / 7.10.11 | PinConfig、Level、Timing、Test Flow、SmartRDI、TML、DPS、PMU、Digital、TMU、RF |
 
+**ATE 规范术语：**
+
+| 厂商 | 测试平台 | 软件 |
+|---|---|---|
+| Advantest | V93000 | SMT7、SMT8 |
+| Teradyne | J750 | IG-XL |
+
+V93000 和 J750 是测试平台。SMT7、SMT8、IG-XL 是软件范围，用于导入、
+检索路由和引用隔离。
+
 **首次使用（约需 15-30 分钟）：**
 
 ```bash
@@ -131,9 +141,23 @@ vector_store:
 
 ## 文档范围
 
-默认只导入 V93000 / SmarTest 7 文档。如需启用 IG-XL，设置
-`documents.igxl.enabled: true` 即可；这是 IG-XL 的权威开关，不需要再把
-`"igxl"` 加入 `documents.enabled_ecosystems`。
+ATE 文档按 `vendor`、测试 `platform` 和 `software` 定义检索范围。
+当 `configs/config.yaml` 中存在 `documents.enabled_scopes` 时，它就是当前可检索范围的权威列表。
+当前多平台 profile 为：
+
+```yaml
+documents:
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
+```
+
+SMT8 应作为 `advantest / v93000 / smt8` 添加，而不是作为新的测试平台。
+修改文档范围配置后，需要执行一次全量 ingest，清理之前范围留下的旧 chunks。
 
 ## 从 Local Mode 迁移
 
