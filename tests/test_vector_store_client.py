@@ -23,11 +23,13 @@ class TestQdrantVectorStore:
         return MagicMock()
 
     @pytest.fixture
-    def store(self, mock_client: MagicMock) -> QdrantVectorStore:
+    def store(self, mock_client: MagicMock, tmp_path: Path) -> QdrantVectorStore:
         with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
             qdrant_cls.return_value = mock_client
             with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
-                store = QdrantVectorStore()
+                store = QdrantVectorStore(
+                    Config({"data": {"processed_dir": str(tmp_path / "processed")}})
+                )
                 store.sparse_encoder.fit(["text large payload"])
                 yield store
 
@@ -46,11 +48,19 @@ class TestQdrantVectorStore:
     def test_upsert_chunks_splits_large_requests_by_configured_batch_size(
         self,
         mock_client: MagicMock,
+        tmp_path: Path,
     ) -> None:
         with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
             qdrant_cls.return_value = mock_client
             with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
-                store = QdrantVectorStore(Config({"vector_store": {"upsert_batch_size": 2}}))
+                store = QdrantVectorStore(
+                    Config(
+                        {
+                            "vector_store": {"upsert_batch_size": 2},
+                            "data": {"processed_dir": str(tmp_path / "processed")},
+                        }
+                    )
+                )
                 store.sparse_encoder.fit(["large payload"])
         chunks = [
             Chunk(
