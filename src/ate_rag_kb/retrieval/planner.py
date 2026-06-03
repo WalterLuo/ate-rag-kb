@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ate_rag_kb.domain.scopes import RetrievalScope
 from ate_rag_kb.retrieval.glossary import GlossaryEntry, expand_query, match_glossary
 from ate_rag_kb.utils.config import Config
 from ate_rag_kb.utils.scope import DocumentScope
@@ -160,10 +161,12 @@ class RetrievalPlanner:
             "retrieval.planner.auto_filter_enabled", True
         )
 
-    def plan(self, query: str) -> RetrievalPlan:
+    def plan(self, query: str, scope: RetrievalScope | None = None) -> RetrievalPlan:
         """Analyze *query* and return a ``RetrievalPlan``."""
-        ecosystem = self._detect_ecosystem(query)
+        ecosystem = self._ecosystem_from_scope(scope) or self._detect_ecosystem(query)
         doc_family = self._detect_doc_family(query, ecosystem)
+        if scope is not None and scope.software == "igxl" and doc_family is None:
+            doc_family = "igxl_help"
 
         if self._glossary_enabled:
             matched_glossary = self._compatible_glossary_entries(
@@ -215,7 +218,8 @@ class RetrievalPlanner:
         clarification_prompt = None
         enabled_versions = self.scope.enabledSoftwareVersions("v93000")
         if (
-            ecosystem == "v93000"
+            scope is None
+            and ecosystem == "v93000"
             and len(enabled_versions) > 1
             and self.scope.shouldAskWhenMultiple()
         ):
@@ -243,6 +247,16 @@ class RetrievalPlanner:
             is_blocked=is_blocked,
             block_reason=block_reason,
         )
+
+    @staticmethod
+    def _ecosystem_from_scope(scope: RetrievalScope | None) -> str | None:
+        if scope is None:
+            return None
+        if scope.software == "igxl":
+            return "igxl"
+        if scope.platform == "v93000":
+            return "v93000"
+        return None
 
     @staticmethod
     def _compatible_glossary_entries(

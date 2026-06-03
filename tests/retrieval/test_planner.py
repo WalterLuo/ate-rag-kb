@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from ate_rag_kb.domain.scopes import TERADYNE_J750_IGXL
 from ate_rag_kb.retrieval.planner import RetrievalPlanner
 from ate_rag_kb.utils.config import Config
 
@@ -38,6 +39,11 @@ class TestRetrievalPlanner:
     def test_detect_ecosystem_neutral(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("how does testing work in general")
         assert plan.ecosystem is None
+
+    def test_uses_resolved_scope_when_provided(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("多 site 串行处理怎么实现？", scope=TERADYNE_J750_IGXL)
+        assert plan.ecosystem == "igxl"
+        assert plan.doc_family == "igxl_help"
 
     def test_non_igxl_terms_override_igxl(self, planner: RetrievalPlanner) -> None:
         # "v93000" should win even if "pattern tool" is an IG-XL term
