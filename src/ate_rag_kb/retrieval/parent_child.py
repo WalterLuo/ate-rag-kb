@@ -27,6 +27,7 @@ class ParentChildExpander:
         vector_store: QdrantVectorStore,
         include_parent: bool | None = None,
         include_siblings: bool | None = None,
+        filters: dict[str, object] | None = None,
     ) -> list[Chunk]:
         """Expand chunks with related context using batched fetches."""
         include_parent = self.include_parent if include_parent is None else include_parent
@@ -57,7 +58,7 @@ class ParentChildExpander:
         if all_related_ids:
             fetched = vector_store.get_by_ids(all_related_ids)
             for cid, chunk in zip(all_related_ids, fetched, strict=False):
-                if chunk is not None:
+                if chunk is not None and self._matches_filters(chunk, filters):
                     id_to_chunk[cid] = chunk
 
         # Second pass: append related chunks in original order
@@ -81,3 +82,18 @@ class ParentChildExpander:
                         result_ids.add(cid)
 
         return ordered
+
+    @staticmethod
+    def _matches_filters(chunk: Chunk, filters: dict[str, object] | None) -> bool:
+        if not filters:
+            return True
+        for key, expected in filters.items():
+            if key in {"source_md", "chunk_type"}:
+                continue
+            actual = getattr(chunk, key, "")
+            if isinstance(expected, (list, tuple, set)):
+                if actual not in expected:
+                    return False
+            elif actual != expected:
+                return False
+        return True

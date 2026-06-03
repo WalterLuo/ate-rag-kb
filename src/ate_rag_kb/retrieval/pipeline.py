@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import typing
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
+from ate_rag_kb.domain.scopes import RetrievalScope
 from ate_rag_kb.embedding.encoder import EmbeddingEncoder
+from ate_rag_kb.retrieval.broad_context import BroadConceptAssembler
 from ate_rag_kb.retrieval.compression import ContextCompressor
+from ate_rag_kb.retrieval.document_graph_expander import DocumentGraphExpander
 from ate_rag_kb.retrieval.hybrid import HybridRetriever
 from ate_rag_kb.retrieval.parent_child import ParentChildExpander
 from ate_rag_kb.retrieval.reranker import Reranker
@@ -20,6 +24,12 @@ if typing.TYPE_CHECKING:
     from ate_rag_kb.retrieval.planner import RetrievalPlan
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class ScopedPipelineResult:
+    chunks: list[tuple[Chunk, float]]
+    processing: dict[str, Any]
 
 
 class RetrievalPipeline:
@@ -34,6 +44,16 @@ class RetrievalPipeline:
         self.expander = ParentChildExpander(config)
         self.compressor = ContextCompressor(config)
 
+        from pathlib import Path
+
+        graph_path = (
+            Path(config.get("data.processed_dir", "./data/processed")) / "document_graph.json"
+        )
+        self.graph_expander = DocumentGraphExpander(graph_path=graph_path)
+        self.broad_assembler = BroadConceptAssembler(config, self.graph_expander)
+
+        self._last_retrieval_stats: dict[str, Any] = {}
+
     async def search(
         self,
         query: str,
@@ -41,9 +61,7 @@ class RetrievalPipeline:
         filters: dict[str, Any] | None = None,
     ) -> list[tuple[Chunk, float]]:
         """Basic semantic search returning chunks with scores."""
-        chunks: list[Chunk] = await asyncio.to_thread(
-            self.hybrid.retrieve, query, top_k, filters
-        )
+        chunks: list[Chunk] = await asyncio.to_thread(self.hybrid.retrieve, query, top_k, filters)
         return [(c, c.score) for c in chunks]
 
     async def retrieve(
@@ -55,15 +73,34 @@ class RetrievalPipeline:
         expand_siblings: bool = True,
         rerank: bool = True,
         compress: bool = True,
+        is_broad_concept: bool = False,
     ) -> list[tuple[Chunk, float]]:
-        """Advanced retrieval with optional reranking, parent-child expansion, and compression."""
-        chunks: list[Chunk] = await asyncio.to_thread(
-            self.hybrid.retrieve, query, top_k, filters
+        """Advanced retrieval with optional graph expansion, reranking, parent-child expansion, and compression."""
+        # Phase 1: hybrid retrieval (dense + sparse + RRF)
+        chunks: list[Chunk] = await asyncio.to_thread(self.hybrid.retrieve, query, top_k, filters)
+        hybrid_stats = self._capture_hybrid_stats(chunks)
+
+        # Phase 2: document graph expansion
+        chunks, graph_stats = await asyncio.to_thread(
+            self.graph_expander.expand,
+            chunks,
+            self.vector_store,
+            is_broad_concept=is_broad_concept,
+            filters=filters,
         )
 
+        # Phase 3: reranking (graph-expanded candidates participate)
+        pre_rerank_chunk_count = len(chunks)
+        rerank_stats = self._empty_rerank_stats()
         if rerank:
-            chunks = await asyncio.to_thread(self.reranker.rerank, query, chunks)
+            chunks = await asyncio.to_thread(
+                self.reranker.rerank, query, chunks, is_broad_concept=is_broad_concept
+            )
+            rerank_stats = self._capture_rerank_stats(
+                pre_rerank_chunk_count, chunks, is_broad_concept
+            )
 
+        # Phase 4: parent-child expansion
         if expand_parents or expand_siblings:
             chunks = await asyncio.to_thread(
                 self.expander.expand,
@@ -71,10 +108,36 @@ class RetrievalPipeline:
                 self.vector_store,
                 include_parent=expand_parents,
                 include_siblings=expand_siblings,
+                filters=filters,
             )
 
+        broad_stats = self._empty_broad_context_stats()
+        if is_broad_concept:
+            chunks, broad_stats = await asyncio.to_thread(
+                self._assemble_broad_context, query, chunks, filters
+            )
+
+        # Phase 5: compression
         if compress:
-            chunks = await asyncio.to_thread(self.compressor.compress, chunks)
+            max_tokens = broad_stats.get("broad_context_max_tokens")
+            chunks = await asyncio.to_thread(
+                self._compress_chunks, chunks, max_tokens
+            )
+
+        final_sources = {c.source_md for c in chunks if c.source_md}
+        token_estimate = sum(len(c.content) // 4 for c in chunks)
+
+        self._last_retrieval_stats = {
+            **hybrid_stats,
+            "graph_expanded_source_count": graph_stats.get("expanded_source_count", 0),
+            "graph_expanded_chunk_count": graph_stats.get("expanded_chunk_count", 0),
+            **rerank_stats,
+            **broad_stats,
+            "cross_scope_dropped_chunk_count": 0,
+            "final_context_source_count": len(final_sources),
+            "final_context_token_estimate": token_estimate,
+            "reranked_candidate_count": rerank_stats["post_rerank_candidate_count"],
+        }
 
         return [(c, c.score) for c in chunks]
 
@@ -91,30 +154,30 @@ class RetrievalPipeline:
         chunks: list[Chunk] = await asyncio.to_thread(
             self.hybrid.retrieve, plan.enhanced_query, search_top_k, effective_filters
         )
+        hybrid_stats = self._capture_hybrid_stats(chunks)
 
         # Title / TOC boost
         boost_factor = self.config.get("retrieval.planner.title_boost_factor", 0.15)
         chunks = self._boost_title_matches(chunks, plan.title_match_terms, boost_factor)
 
         # Context enrichment for edge chunks
-        enrichment_enabled = self.config.get(
-            "retrieval.planner.context_enrichment_enabled", True
-        )
+        enrichment_enabled = self.config.get("retrieval.planner.context_enrichment_enabled", True)
         primary = chunks[:top_k]
         if enrichment_enabled:
-            enriched = await asyncio.to_thread(
-                self._enrich_chunks, chunks[: top_k * 2]
-            )
+            enriched = await asyncio.to_thread(self._enrich_chunks, chunks[: top_k * 2])
             primary_ids = {c.id for c in primary}
-            enrichment_budget = self.config.get(
-                "retrieval.planner.enrichment_budget", 3
-            )
-            enrichment_chunks = [
-                c for c in enriched if c.id not in primary_ids
-            ][:enrichment_budget]
+            enrichment_budget = self.config.get("retrieval.planner.enrichment_budget", 3)
+            enrichment_chunks = [c for c in enriched if c.id not in primary_ids][:enrichment_budget]
             final_chunks = primary + enrichment_chunks
         else:
             final_chunks = primary
+
+        self._last_retrieval_stats = {
+            **hybrid_stats,
+            "graph_expanded_source_count": 0,
+            "graph_expanded_chunk_count": 0,
+            "deduplicated_candidate_count": len(final_chunks),
+        }
 
         return [(c, c.score) for c in final_chunks]
 
@@ -128,6 +191,7 @@ class RetrievalPipeline:
         expand_siblings: bool = True,
         rerank: bool = True,
         compress: bool = True,
+        scope: RetrievalScope | None = None,
     ) -> list[tuple[Chunk, float]]:
         """Advanced retrieval with planner-driven enrichment, title boost, and optional reranking/expansion/compression."""
         # Phase 1: enriched search with title boost and context enrichment
@@ -137,13 +201,30 @@ class RetrievalPipeline:
             top_k=top_k,
             filters=filters,
         )
+        search_stats = dict(self._last_retrieval_stats)
         chunks = [c for c, _ in chunks_with_scores]
 
-        # Phase 2: optional reranking
-        if rerank:
-            chunks = await asyncio.to_thread(self.reranker.rerank, query, chunks)
+        # Phase 2: document graph expansion
+        chunks, graph_stats = await asyncio.to_thread(
+            self.graph_expander.expand,
+            chunks,
+            self.vector_store,
+            is_broad_concept=plan.is_broad_concept,
+            filters=filters,
+        )
 
-        # Phase 3: optional parent-child expansion
+        # Phase 3: optional reranking (graph-expanded candidates participate)
+        pre_rerank_chunk_count = len(chunks)
+        rerank_stats = self._empty_rerank_stats()
+        if rerank:
+            chunks = await asyncio.to_thread(
+                self.reranker.rerank, query, chunks, is_broad_concept=plan.is_broad_concept
+            )
+            rerank_stats = self._capture_rerank_stats(
+                pre_rerank_chunk_count, chunks, plan.is_broad_concept
+            )
+
+        # Phase 4: optional parent-child expansion
         if expand_parents or expand_siblings:
             chunks = await asyncio.to_thread(
                 self.expander.expand,
@@ -151,13 +232,206 @@ class RetrievalPipeline:
                 self.vector_store,
                 include_parent=expand_parents,
                 include_siblings=expand_siblings,
+                filters=filters,
             )
 
-        # Phase 4: optional compression
+        broad_stats = self._empty_broad_context_stats()
+        if plan.is_broad_concept:
+            chunks, broad_stats = await asyncio.to_thread(
+                self._assemble_broad_context, query, chunks, filters
+            )
+
+        cross_scope_dropped_chunk_count = 0
+        if scope is not None:
+            before_scope_filter = len(chunks)
+            chunks = [
+                chunk
+                for chunk in chunks
+                if scope.matches_document(chunk.vendor, chunk.platform, chunk.software)
+            ]
+            cross_scope_dropped_chunk_count = before_scope_filter - len(chunks)
+
+        # Phase 5: optional compression
         if compress:
-            chunks = await asyncio.to_thread(self.compressor.compress, chunks)
+            max_tokens = broad_stats.get("broad_context_max_tokens")
+            chunks = await asyncio.to_thread(
+                self._compress_chunks, chunks, max_tokens
+            )
+
+        final_sources = {c.source_md for c in chunks if c.source_md}
+        token_estimate = sum(len(c.content) // 4 for c in chunks)
+
+        self._last_retrieval_stats = {
+            **search_stats,
+            "graph_expanded_source_count": graph_stats.get("expanded_source_count", 0),
+            "graph_expanded_chunk_count": graph_stats.get("expanded_chunk_count", 0),
+            **rerank_stats,
+            **broad_stats,
+            "cross_scope_dropped_chunk_count": cross_scope_dropped_chunk_count,
+            "final_context_source_count": len(final_sources),
+            "final_context_token_estimate": token_estimate,
+            "reranked_candidate_count": rerank_stats["post_rerank_candidate_count"],
+        }
 
         return [(c, c.score) for c in chunks]
+
+    async def search_scope(
+        self,
+        query: str,
+        *,
+        plan: RetrievalPlan,
+        scope: RetrievalScope,
+        top_k: int,
+        user_filters: dict[str, Any] | None = None,
+    ) -> ScopedPipelineResult:
+        filters = self._scope_filters(scope, user_filters)
+        chunks = await self.search_enriched(
+            query=query,
+            plan=plan,
+            top_k=top_k,
+            filters=filters,
+        )
+        filtered, dropped = self._filter_scored_chunks_by_scope(chunks, scope)
+        processing = dict(self._last_retrieval_stats)
+        processing["cross_scope_dropped_chunk_count"] = (
+            processing.get("cross_scope_dropped_chunk_count", 0) + dropped
+        )
+        return ScopedPipelineResult(chunks=filtered, processing=processing)
+
+    async def retrieve_scope(
+        self,
+        query: str,
+        *,
+        plan: RetrievalPlan,
+        scope: RetrievalScope,
+        top_k: int,
+        user_filters: dict[str, Any] | None,
+        rerank: bool,
+        expand_parents: bool,
+        expand_siblings: bool,
+        compress: bool,
+    ) -> ScopedPipelineResult:
+        filters = self._scope_filters(scope, user_filters)
+        chunks = await self.retrieve_enriched(
+            query=query,
+            plan=plan,
+            top_k=top_k,
+            filters=filters,
+            expand_parents=expand_parents,
+            expand_siblings=expand_siblings,
+            rerank=rerank,
+            compress=compress,
+            scope=scope,
+        )
+        filtered, dropped = self._filter_scored_chunks_by_scope(chunks, scope)
+        processing = dict(self._last_retrieval_stats)
+        processing["cross_scope_dropped_chunk_count"] = (
+            processing.get("cross_scope_dropped_chunk_count", 0) + dropped
+        )
+        return ScopedPipelineResult(chunks=filtered, processing=processing)
+
+    @staticmethod
+    def _empty_rerank_stats() -> dict[str, int]:
+        return {
+            "post_rerank_candidate_count": 0,
+            "post_rerank_source_count": 0,
+            "post_diversity_candidate_count": 0,
+            "post_diversity_source_count": 0,
+            "low_utility_rerank_candidate_count": 0,
+        }
+
+    def _capture_rerank_stats(
+        self,
+        pre_rerank_chunk_count: int,
+        chunks: list[Chunk],
+        is_broad_concept: bool,
+    ) -> dict[str, int]:
+        raw_stats = getattr(self.reranker, "_last_rerank_stats", {})
+        if isinstance(raw_stats, dict) and raw_stats:
+            return {**self._empty_rerank_stats(), **raw_stats}
+
+        if is_broad_concept:
+            candidate_limit = getattr(self.reranker, "broad_candidate_top_k", len(chunks))
+        else:
+            candidate_limit = getattr(self.reranker, "top_k", len(chunks))
+        selected_sources = {chunk.source_md for chunk in chunks if chunk.source_md}
+        return {
+            "post_rerank_candidate_count": min(pre_rerank_chunk_count, candidate_limit),
+            "post_rerank_source_count": len(selected_sources),
+            "post_diversity_candidate_count": len(chunks),
+            "post_diversity_source_count": len(selected_sources),
+            "low_utility_rerank_candidate_count": 0,
+        }
+
+    @staticmethod
+    def _empty_broad_context_stats() -> dict[str, Any]:
+        return {
+            "broad_context_assembled": False,
+            "broad_context_seed_source_count": 0,
+            "broad_context_discovered_source_count": 0,
+            "broad_context_added_chunk_count": 0,
+            "broad_context_source_count": 0,
+            "broad_context_token_estimate": 0,
+            "broad_context_max_tokens": None,
+            "low_utility_chunk_count": 0,
+            "coverage_topics": [],
+        }
+
+    def _assemble_broad_context(
+        self,
+        query: str,
+        chunks: list[Chunk],
+        filters: dict[str, Any] | None = None,
+    ) -> tuple[list[Chunk], dict[str, Any]]:
+        assembler = getattr(self, "broad_assembler", None)
+        if assembler is None:
+            return chunks, self._empty_broad_context_stats()
+        assembled, stats = assembler.assemble(
+            chunks, self.vector_store, query=query, filters=filters
+        )
+        return assembled, {
+            **self._empty_broad_context_stats(),
+            **stats,
+            "broad_context_max_tokens": assembler.max_tokens,
+        }
+
+    @staticmethod
+    def _scope_filters(
+        scope: RetrievalScope,
+        user_filters: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        filters = dict(user_filters or {})
+        filters.update(scope.to_filters())
+        return filters
+
+    @staticmethod
+    def _filter_scored_chunks_by_scope(
+        chunks: list[tuple[Chunk, float]],
+        scope: RetrievalScope,
+    ) -> tuple[list[tuple[Chunk, float]], int]:
+        filtered = [
+            (chunk, score)
+            for chunk, score in chunks
+            if scope.matches_document(chunk.vendor, chunk.platform, chunk.software)
+        ]
+        return filtered, len(chunks) - len(filtered)
+
+    def _compress_chunks(self, chunks: list[Chunk], max_tokens: int | None) -> list[Chunk]:
+        if max_tokens is None:
+            return self.compressor.compress(chunks)
+        return self.compressor.compress(chunks, max_tokens=max_tokens)
+
+    def _capture_hybrid_stats(self, chunks: list[Chunk]) -> dict[str, Any]:
+        """Return the retriever's real candidate counts with stable defaults."""
+        raw_stats = getattr(self.hybrid, "_last_retrieval_stats", {})
+        stats = dict(raw_stats) if isinstance(raw_stats, dict) else {}
+        return {
+            "dense_candidate_count": stats.get("dense_candidate_count", len(chunks)),
+            "sparse_candidate_count": stats.get("sparse_candidate_count", 0),
+            "fused_candidate_count": stats.get("fused_candidate_count", len(chunks)),
+            "sparse_search_used": stats.get("sparse_search_used", False),
+            "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
+        }
 
     @staticmethod
     def _boost_title_matches(
@@ -168,6 +442,7 @@ class RetrievalPipeline:
         """Boost chunk scores based on title/TOC term matches."""
         if not title_match_terms:
             return chunks
+        boosted: list[Chunk] = []
         for chunk in chunks:
             haystack = " ".join(
                 [
@@ -177,13 +452,12 @@ class RetrievalPipeline:
                     *chunk.toc_path,
                 ]
             ).lower()
-            match_count = sum(
-                1 for term in title_match_terms if term.lower() in haystack
-            )
+            match_count = sum(1 for term in title_match_terms if term.lower() in haystack)
             if match_count > 0:
-                chunk.score *= 1.0 + boost_factor * match_count
-        chunks.sort(key=lambda c: c.score, reverse=True)
-        return chunks
+                chunk = replace(chunk, score=chunk.score * (1.0 + boost_factor * match_count))
+            boosted.append(chunk)
+        boosted.sort(key=lambda c: c.score, reverse=True)
+        return boosted
 
     def _enrich_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
         """Supplement edge chunks with parent and document context."""
@@ -300,7 +574,7 @@ class RetrievalPipeline:
                 break
             qdrant_offset = next_offset
 
-        page_chunks = fetched[offset:offset + limit]
+        page_chunks = fetched[offset : offset + limit]
         has_more = offset + len(page_chunks) < total
         next_numeric_offset = offset + len(page_chunks) if has_more else None
 
@@ -326,9 +600,7 @@ class RetrievalPipeline:
         sample_limit = 1000
         sample_chunks: list[Chunk] = []
         try:
-            sample_chunks, _ = await asyncio.to_thread(
-                self.vector_store.scroll, limit=sample_limit
-            )
+            sample_chunks, _ = await asyncio.to_thread(self.vector_store.scroll, limit=sample_limit)
             for chunk in sample_chunks:
                 if chunk.platform:
                     platforms.add(chunk.platform)
