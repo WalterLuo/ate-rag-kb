@@ -86,6 +86,13 @@ class TestRetrievalPlanner:
         plan = planner.plan("数组的作用")
         assert "ARRAY" in plan.enhanced_query
 
+    def test_igxl_serial_site_loop_expands_api_terms(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("IG-XL 多 site 串行处理怎么实现？", scope=TERADYNE_J750_IGXL)
+        assert "SelectFirst" in plan.enhanced_query
+        assert "SelectNext" in plan.enhanced_query
+        assert "loopDone" in plan.enhanced_query
+        assert "FastSiteLoop" in plan.enhanced_query
+
     def test_no_expansion_for_unknown_query(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("random unrelated query")
         assert plan.enhanced_query == "random unrelated query"

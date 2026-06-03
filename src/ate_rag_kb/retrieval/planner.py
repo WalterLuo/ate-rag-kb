@@ -170,7 +170,9 @@ class RetrievalPlanner:
 
         if self._glossary_enabled:
             matched_glossary = self._compatible_glossary_entries(
-                match_glossary(query), ecosystem
+                match_glossary(query),
+                ecosystem,
+                scope,
             )
             enhanced_query = expand_query(query, matched_glossary)
         else:
@@ -260,7 +262,9 @@ class RetrievalPlanner:
 
     @staticmethod
     def _compatible_glossary_entries(
-        entries: list[GlossaryEntry], explicit_ecosystem: str | None
+        entries: list[GlossaryEntry],
+        explicit_ecosystem: str | None,
+        scope: RetrievalScope | None = None,
     ) -> list[GlossaryEntry]:
         """Drop glossary expansions that conflict with an explicit ecosystem.
 
@@ -268,13 +272,25 @@ class RetrievalPlanner:
         tied to IG-XL or V93000 only apply when the query did not already name
         the other ecosystem.
         """
-        if explicit_ecosystem is None:
-            return entries
-        return [
-            entry
-            for entry in entries
-            if entry.ecosystem is None or entry.ecosystem == explicit_ecosystem
-        ]
+        compatible: list[GlossaryEntry] = []
+        for entry in entries:
+            if scope is not None and entry.software and entry.software != scope.software:
+                continue
+            if scope is None and entry.software and explicit_ecosystem is not None:
+                if RetrievalPlanner._ecosystem_from_software(entry.software) != explicit_ecosystem:
+                    continue
+            if explicit_ecosystem is not None and entry.ecosystem not in (None, explicit_ecosystem):
+                continue
+            compatible.append(entry)
+        return compatible
+
+    @staticmethod
+    def _ecosystem_from_software(software: str) -> str | None:
+        if software == "igxl":
+            return "igxl"
+        if software in {"smt7", "smt8"}:
+            return "v93000"
+        return None
 
     # -----------------------------------------------------------------------
     # Ecosystem detection
