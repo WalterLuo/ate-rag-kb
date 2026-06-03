@@ -134,6 +134,7 @@ class RetrievalPipeline:
             **rerank_stats,
             **broad_stats,
             "cross_scope_dropped_chunk_count": 0,
+            "title_match_preserved_chunk_count": 0,
             "final_context_source_count": len(final_sources),
             "final_context_token_estimate": token_estimate,
             "reranked_candidate_count": rerank_stats["post_rerank_candidate_count"],
@@ -216,9 +217,20 @@ class RetrievalPipeline:
         # Phase 3: optional reranking (graph-expanded candidates participate)
         pre_rerank_chunk_count = len(chunks)
         rerank_stats = self._empty_rerank_stats()
+        title_match_preserved_chunk_count = 0
         if rerank:
+            rerank_candidates = list(chunks)
+            rerank_query = plan.enhanced_query or query
             chunks = await asyncio.to_thread(
-                self.reranker.rerank, query, chunks, is_broad_concept=plan.is_broad_concept
+                self.reranker.rerank, rerank_query, chunks, is_broad_concept=plan.is_broad_concept
+            )
+            chunks, title_match_preserved_chunk_count = self._preserve_title_match_chunks(
+                reranked=chunks,
+                candidates=rerank_candidates,
+                title_match_terms=plan.title_match_terms,
+                max_preserved=self.config.get(
+                    "retrieval.planner.title_match_preserve_count", 3
+                ),
             )
             rerank_stats = self._capture_rerank_stats(
                 pre_rerank_chunk_count, chunks, plan.is_broad_concept
@@ -268,6 +280,7 @@ class RetrievalPipeline:
             **rerank_stats,
             **broad_stats,
             "cross_scope_dropped_chunk_count": cross_scope_dropped_chunk_count,
+            "title_match_preserved_chunk_count": title_match_preserved_chunk_count,
             "final_context_source_count": len(final_sources),
             "final_context_token_estimate": token_estimate,
             "reranked_candidate_count": rerank_stats["post_rerank_candidate_count"],
@@ -433,8 +446,9 @@ class RetrievalPipeline:
             "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
         }
 
-    @staticmethod
+    @classmethod
     def _boost_title_matches(
+        cls,
         chunks: list[Chunk],
         title_match_terms: list[str],
         boost_factor: float = 0.15,
@@ -452,12 +466,60 @@ class RetrievalPipeline:
                     *chunk.toc_path,
                 ]
             ).lower()
-            match_count = sum(1 for term in title_match_terms if term.lower() in haystack)
+            match_count = cls._title_match_count(chunk, title_match_terms, haystack=haystack)
             if match_count > 0:
                 chunk = replace(chunk, score=chunk.score * (1.0 + boost_factor * match_count))
             boosted.append(chunk)
         boosted.sort(key=lambda c: c.score, reverse=True)
         return boosted
+
+    @classmethod
+    def _preserve_title_match_chunks(
+        cls,
+        *,
+        reranked: list[Chunk],
+        candidates: list[Chunk],
+        title_match_terms: list[str],
+        max_preserved: int,
+    ) -> tuple[list[Chunk], int]:
+        """Prepend exact title/TOC matches that a cross-encoder may demote."""
+        if not title_match_terms or max_preserved <= 0:
+            return reranked, 0
+
+        protected: list[tuple[int, float, int, Chunk]] = []
+        for position, chunk in enumerate(candidates):
+            match_count = cls._title_match_count(chunk, title_match_terms)
+            if match_count > 0:
+                protected.append((match_count, chunk.score, -position, chunk))
+
+        if not protected:
+            return reranked, 0
+
+        selected_ids = {chunk.id for chunk in reranked}
+        protected.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        preserved = [item[3] for item in protected[:max_preserved]]
+        preserved_ids = {chunk.id for chunk in preserved}
+        rest = [chunk for chunk in reranked if chunk.id not in preserved_ids]
+        newly_preserved_count = sum(1 for chunk in preserved if chunk.id not in selected_ids)
+        return preserved + rest, newly_preserved_count
+
+    @staticmethod
+    def _title_match_count(
+        chunk: Chunk,
+        title_match_terms: list[str],
+        *,
+        haystack: str | None = None,
+    ) -> int:
+        if haystack is None:
+            haystack = " ".join(
+                [
+                    chunk.doc_title,
+                    chunk.section_title,
+                    chunk.subsection_title,
+                    *chunk.toc_path,
+                ]
+            ).lower()
+        return sum(1 for term in title_match_terms if term.lower() in haystack)
 
     def _enrich_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
         """Supplement edge chunks with parent and document context."""

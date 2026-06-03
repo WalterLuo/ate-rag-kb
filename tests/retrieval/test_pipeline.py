@@ -172,6 +172,73 @@ class TestSearchEnriched:
         pipeline.compressor.compress.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_retrieve_enriched_preserves_exact_title_matches_after_rerank(
+        self, pipeline: RetrievalPipeline
+    ) -> None:
+        """Planner title matches should survive cross-encoder reranking."""
+        select_first = self._make_chunk(
+            "select_first",
+            ChunkType.DOCUMENT,
+            content="# SelectFirst\nThis method initializes a serial loop to the first site.",
+            source_md="igxl/vbt/execSites.39.08.md",
+            score=0.95,
+        )
+        select_first.doc_title = "SelectFirst"
+        select_next = self._make_chunk(
+            "select_next",
+            ChunkType.DOCUMENT,
+            content="# SelectNext\nThis method selects the next site in a serial loop.",
+            source_md="igxl/vbt/execSites.39.09.md",
+            score=0.94,
+        )
+        select_next.doc_title = "SelectNext"
+        noisy = [
+            self._make_chunk(
+                f"noise{i}",
+                ChunkType.PARAGRAPH,
+                content="IG-XL includes SelectSitesFirstFan and SelectSitesNextFan methods.",
+                source_md=f"igxl/vbt/noise{i}.md",
+                score=0.99 - i * 0.01,
+            )
+            for i in range(5)
+        ]
+        candidates = noisy + [select_first, select_next]
+        for candidate in candidates:
+            candidate.vendor = "teradyne"
+            candidate.platform = "j750"
+            candidate.software = "igxl"
+
+        pipeline.hybrid.retrieve = MagicMock(return_value=candidates)
+        pipeline.graph_expander.expand = MagicMock(return_value=(candidates, {}))
+        pipeline.reranker.rerank = MagicMock(return_value=noisy[:5])
+        pipeline.expander.expand = MagicMock(side_effect=lambda chunks, *_args, **_kwargs: chunks)
+        pipeline.compressor.compress = MagicMock(side_effect=lambda chunks, **_kwargs: chunks)
+
+        planner = RetrievalPlanner(pipeline.config)
+        query = "IG-XL 多 site 串行处理怎么实现？"
+        plan = planner.plan(query, scope=TERADYNE_J750_IGXL)
+
+        results = await pipeline.retrieve_enriched(
+            query=query,
+            plan=plan,
+            top_k=5,
+            rerank=True,
+            expand_parents=True,
+            expand_siblings=False,
+            compress=True,
+            scope=TERADYNE_J750_IGXL,
+        )
+
+        rerank_query = pipeline.reranker.rerank.call_args.args[0]
+        assert "SelectFirst" in rerank_query
+        assert "SelectNext" in rerank_query
+
+        source_mds = {chunk.source_md for chunk, _score in results}
+        assert "igxl/vbt/execSites.39.08.md" in source_mds
+        assert "igxl/vbt/execSites.39.09.md" in source_mds
+        assert pipeline._last_retrieval_stats["title_match_preserved_chunk_count"] == 2
+
+    @pytest.mark.asyncio
     async def test_retrieve_scope_applies_scope_filters_and_drops_cross_scope(
         self, pipeline: RetrievalPipeline
     ) -> None:
