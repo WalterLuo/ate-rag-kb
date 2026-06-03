@@ -13,182 +13,44 @@ from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.mcp.context_builder import (
     _chunk_to_mcp,
     build_context_package,
+    build_scoped_context_package,
     build_sources_summary,
     compute_confidence,
 )
 from ate_rag_kb.mcp.models import (
+    McpAnswerContract,
     McpAskResult,
     McpCitation,
     McpDocumentResult,
     McpRelatedResult,
     McpRetrieveResult,
+    McpResolvedScope,
     McpSearchResult,
     McpStatusResult,
 )
+from ate_rag_kb.retrieval.coordinator import (
+    CoordinatedRetrievalResult,
+    RetrievalCoordinator,
+)
 from ate_rag_kb.retrieval.pipeline import RetrievalPipeline
 from ate_rag_kb.retrieval.planner import RetrievalPlan, RetrievalPlanner
-from ate_rag_kb.utils.scope import DocumentScope
 
 logger = logging.getLogger(__name__)
 
-_QUERY_SOURCE_HINTS: tuple[dict[str, Any], ...] = (
-    {
-        "terms": ("array", "array_x", "array_d", "array_i"),
-        "source_mds": ("20847.md", "130224.md", "102025.md"),
-    },
-    # IG-XL weak topics from 15Q evaluation (2026-05-28)
-    {
-        # Q4: DSIO200 VSSS/VSSC definition and quad mode support
-        "terms": (
-            "vsss",
-            "vssc",
-            "dsio200 vsss",
-            "dsio200 vssc",
-            "vsss/vssc",
-            "virtual serial source",
-            "virtual serial capture",
-            "quad mode",
-            "四通道",
-            "不支持 quad",
-        ),
-        "source_mds": (
-            "igxl/patternlanguage/plinstruments.5.07.md",
-            "igxl/dibdesign/dib_hsd200.16.5.md",
-        ),
-    },
-    {
-        # Q5: SECS/GEM spooling CONTROLSTATE and Off-Line messages
-        "terms": (
-            "secs/gem spooling",
-            "spooling controlstate",
-            "off-line messages",
-            "secs spooling",
-            "controlstate off-line",
-            "spooling",
-            "controlstate",
-            "off-line",
-            "离线",
-            "脱机",
-            "控制状态",
-        ),
-        "source_mds": ("igxl/secsgem/secs_scenario.11.51.md",),
-    },
-    {
-        # Q8: Pattern Tool MTO Vectors worksheet extra columns
-        "terms": (
-            "pattern tool mto",
-            "mto vectors worksheet",
-            "pattern file mto",
-            "vectors worksheet mto",
-            "mto vectors",
-            "pattern tool",
-            "使用 mto",
-        ),
-        "source_mds": (
-            "igxl/patterntool/PTVectorsEditing.4.21.md",
-            "igxl/patternlanguage/plmto.7.03.md",
-        ),
-    },
-    {
-        # Q10: IG-XL Test Analysis Tool startup
-        "terms": (
-            "test analysis tool",
-            "test analysis tool startup",
-            "test analysis tool 启动",
-            "tausing.1.2",
-            "test analysis tool start menu",
-            "test analysis tool datatool",
-        ),
-        "source_mds": ("igxl/testanalysis/taUsing.1.2.md",),
-    },
-    {
-        # Q14: Available J750 Features classification
-        "terms": (
-            "available j750 features",
-            "j750 features classification",
-            "j750 features 分类",
-            "available j750",
-            "j750 功能",
-            "功能分类",
-            "可用功能",
-        ),
-        "source_mds": ("igxl/igxladmin/adLicensing.2.6.md",),
-    },
-    # Q6: MTO800 Resource Map programming
-    {
-        "terms": (
-            "mto800 resource map",
-            "programming the mto resource map",
-            "mto resource map programming",
-            "资源映射",
-            "资源表",
-        ),
-        "source_mds": ("igxl/mto800/mt800prog.3.04.md",),
-    },
-    # Q6: MTO Pattern Microcodes / Pattern Tool MTO vectors
-    {
-        "terms": (
-            "mto pattern microcodes",
-            "pattern microcodes",
-            "mto vectors",
-            "vectors worksheet mto",
-            "pattern file mto",
-            "pattern tool mto",
-        ),
-        "source_mds": (
-            "igxl/patternlanguage/plmto.7.03.md",
-            "igxl/patterntool/PTVectorsEditing.4.21.md",
-        ),
-    },
-    # Q7: DataTool MTO Resource Map Sheet restrictions and limitations
-    {
-        "terms": (
-            "mto resource map sheet",
-            "datatool mto resource map",
-            "programming restrictions",
-            "configuration limitations",
-            "限制",
-            "配置限制",
-        ),
-        "source_mds": (
-            "igxl/datatool/DTSheets.11.185.md",
-            "igxl/mto800/mt800prog.3.04.md",
-        ),
-    },
-)
+_BROAD_REQUIRED_SECTIONS = [
+    "Core concept and purpose",
+    "Related windows, flags, commands, APIs, or configuration fields",
+    "Common usage scenarios",
+    "Execution behavior and examples",
+    "Limitations, warnings, and best practices",
+]
 
-# Terms that strongly indicate an IG-XL query context.
-_IGXL_QUERY_TERMS: tuple[str, ...] = (
-    "ig-xl",
-    "igxl",
-    "j750",
-    "ultraflex",
-    "mto800",
-    "dsio200",
-    "apmu",
-    "ip750",
-    "test analysis tool",
-    "secs/gem",
-    "available j750 features",
-    "simulatedconfig_j750",
-    "hsd800",
-    "j750ex",
-    "test program protection",
-    "visual basic for test",
-    "driverapi",
-    "pattern tool",
-    "mto",
-    "vectors worksheet",
-    "datatool",
-    "bitmap tool",
-    "redundancy analysis",
-    "raplus",
-    "production bit map",
-    "tpprotection",
-    "tppusing",
-)
-
-_NON_IGXL_TERMS: tuple[str, ...] = ("v93000", "smartest", "smt7", "smt8")
+_BROAD_SYNTHESIS_RULES = [
+    "Do not return only a short overview when content-bearing subtopics are available.",
+    "Cover each applicable coverage topic, or briefly state why it is outside the answer scope.",
+    "Cite source_md and section_title for each answer section.",
+    "Mark unsupported or unverified details as not confirmed by the KB.",
+]
 
 # ---------------------------------------------------------------------------
 # Tool schemas (JSON Schema for MCP discovery)
@@ -382,9 +244,14 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 class McpToolHandler:
     """Wraps RetrievalPipeline methods as MCP tool handlers."""
 
-    def __init__(self, pipeline: RetrievalPipeline) -> None:
+    def __init__(
+        self,
+        pipeline: RetrievalPipeline,
+        coordinator: RetrievalCoordinator | None = None,
+    ) -> None:
         self.pipeline = pipeline
         self.planner = RetrievalPlanner(pipeline.config)
+        self.coordinator = coordinator
 
     @staticmethod
     def _merge_filters(
@@ -412,9 +279,7 @@ class McpToolHandler:
                 for c, s in results
                 if c.ecosystem != "v93000"
                 and not McpToolHandler._is_smt7_or_v93000_chunk(c)
-                and (
-                    c.platform != "TDC" or c.source_md.lower().startswith("igxl/")
-                )
+                and (c.platform != "TDC" or c.source_md.lower().startswith("igxl/"))
             ]
         if plan.ecosystem == "v93000":
             return [
@@ -427,115 +292,170 @@ class McpToolHandler:
         return results
 
     def _result_limit_with_enrichment(
-        self, query: str, top_k: int
-    ) -> int:
-        """Allow bounded enrichment and curated hint chunks beyond top_k."""
-        enrichment_budget = self.pipeline.config.get(
-            "retrieval.planner.enrichment_budget", 3
-        )
-        _matched_terms, source_mds = self._source_hints_for_query(query)
-        return top_k + enrichment_budget + len(source_mds)
-
-    async def _augment_with_source_hints(
         self,
         query: str,
-        results: list[tuple[Chunk, float]],
-        max_results: int,
+        top_k: int,
+        *,
+        is_broad_concept: bool = False,
+    ) -> int:
+        """Allow bounded enrichment beyond top_k."""
+        del query
+        enrichment_budget = self.pipeline.config.get("retrieval.planner.enrichment_budget", 3)
+        limit = top_k + enrichment_budget
+        if is_broad_concept:
+            return max(
+                limit,
+                self.pipeline.config.get("retrieval.broad_context.max_chunks", 16),
+            )
+        return limit
+
+    def _context_token_budget(
+        self,
+        plan: RetrievalPlan,
+        requested: int | None = None,
+    ) -> int:
+        if requested is not None:
+            return requested
+        if plan.is_broad_concept:
+            return self.pipeline.config.get("retrieval.broad_context.max_tokens", 9000)
+        return 4000
+
+    @staticmethod
+    def _broad_processing(stats: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "broad_context_assembled": stats.get("broad_context_assembled", False),
+            "broad_context_seed_source_count": stats.get(
+                "broad_context_seed_source_count", 0
+            ),
+            "broad_context_discovered_source_count": stats.get(
+                "broad_context_discovered_source_count", 0
+            ),
+            "broad_context_added_chunk_count": stats.get(
+                "broad_context_added_chunk_count", 0
+            ),
+            "broad_context_source_count": stats.get("broad_context_source_count", 0),
+            "broad_context_token_estimate": stats.get(
+                "broad_context_token_estimate", 0
+            ),
+            "low_utility_rerank_candidate_count": stats.get(
+                "low_utility_rerank_candidate_count", 0
+            ),
+            "low_utility_chunk_count": stats.get("low_utility_chunk_count", 0),
+            "coverage_topics": stats.get("coverage_topics", []),
+        }
+
+    @staticmethod
+    def _answer_contract(
+        plan: RetrievalPlan,
+        processing_info: dict[str, Any],
+    ) -> McpAnswerContract:
+        """Return explicit synthesis requirements for the calling agent."""
+        if not plan.is_broad_concept:
+            return McpAnswerContract()
+
+        coverage_topics = processing_info.get("coverage_topics", [])
+        return McpAnswerContract(
+            answer_mode="broad_concept",
+            completeness_required=True,
+            required_sections=list(_BROAD_REQUIRED_SECTIONS),
+            coverage_topics=list(coverage_topics),
+            synthesis_rules=list(_BROAD_SYNTHESIS_RULES),
+            diagnostics={
+                "broad_context_assembled": processing_info.get(
+                    "broad_context_assembled", False
+                ),
+                "coverage_topic_count": len(coverage_topics),
+                "final_context_source_count": processing_info.get(
+                    "final_context_source_count", 0
+                ),
+                "final_context_token_estimate": processing_info.get(
+                    "final_context_token_estimate", 0
+                ),
+            },
+        )
+
+    @staticmethod
+    def _scope_to_mcp(scope: Any) -> McpResolvedScope:
+        return McpResolvedScope(
+            vendor=scope.vendor,
+            platform=scope.platform,
+            software=scope.software,
+            software_release=scope.software_release,
+        )
+
+    @staticmethod
+    def _flatten_coordinated(
+        result: CoordinatedRetrievalResult,
     ) -> list[tuple[Chunk, float]]:
-        """Add curated source hits for known short/ambiguous ATE terms.
+        return [
+            (chunk, score)
+            for group in result.groups
+            for chunk, score in group.chunks
+        ]
 
-        Some terms, such as ARRAY, are too short and overloaded for dense
-        retrieval alone. These hints keep beta-regression sources visible while
-        preserving the normal retrieval result list.
-        """
-        matched_terms, source_mds = self._source_hints_for_query(query)
-        seen_ids = {chunk.id for chunk, _ in results}
-        seen_sources = {chunk.source_md for chunk, _ in results}
-        hinted: list[tuple[Chunk, float]] = []
-
-        for source_md in source_mds:
-            if source_md in seen_sources:
-                # Promote the first chunk of this source to the hint section
-                # so it is not dropped by truncation.
-                existing_idx = next(
-                    (
-                        i
-                        for i, (c, _) in enumerate(results)
-                        if c.source_md == source_md
-                    ),
-                    None,
+    @staticmethod
+    def _coordinated_processing(result: CoordinatedRetrievalResult) -> dict[str, Any]:
+        return {
+            "processing_by_scope": result.processing_by_scope,
+            "cross_scope_dropped_chunk_count": result.cross_scope_dropped_chunk_count,
+            "final_source_files_by_scope": {
+                group.scope.key: sorted(
+                    {chunk.source_md for chunk, _score in group.chunks if chunk.source_md}
                 )
-                if existing_idx is not None:
-                    existing = results.pop(existing_idx)
-                    hinted.append(existing)
-                    seen_ids.add(existing[0].id)
-                continue
-            try:
-                doc_chunks = await self.pipeline.get_document(source_md)
-            except Exception as exc:
-                logger.warning("Failed to fetch source hint %s: %s", source_md, exc)
-                continue
-
-            chunk = self._select_source_hint_chunk(query, doc_chunks, matched_terms)
-            if chunk and chunk.id not in seen_ids:
-                hinted.append((chunk, 0.99))
-                seen_ids.add(chunk.id)
-                seen_sources.add(chunk.source_md)
-
-        combined = self._filter_igxl_contamination(query, hinted + results)
-        return combined[:max_results]
-
-    def _source_hints_for_query(self, query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        normalized = query.lower()
-        source_mds: list[str] = []
-        matched_terms: list[str] = []
-        scope = DocumentScope(self.pipeline.config)
-        for hint in _QUERY_SOURCE_HINTS:
-            hint_matched = [term for term in hint["terms"] if term in normalized]
-            if hint_matched:
-                for src in hint["source_mds"]:
-                    if src.lower().startswith("igxl/") and not scope.isIgxlEnabled():
-                        continue
-                    source_mds.append(src)
-                matched_terms.extend(hint_matched)
-        return tuple(dict.fromkeys(matched_terms)), tuple(dict.fromkeys(source_mds))
+                for group in result.groups
+            },
+        }
 
     @staticmethod
-    def _select_source_hint_chunk(
-        query: str, chunks: list[Chunk], terms: tuple[str, ...]
-    ) -> Chunk | None:
-        if not chunks:
-            return None
-
-        query_terms = [term for term in terms if term in query.lower()]
-        if not query_terms:
-            query_terms = list(terms)[:1] if terms else []
-
-        for chunk in chunks:
-            haystack = " ".join(
-                [
-                    chunk.doc_title,
-                    chunk.section_title,
-                    chunk.subsection_title,
-                    chunk.content,
-                ]
-            ).lower()
-            if any(term in haystack for term in query_terms):
-                return chunk
-
-        return next((chunk for chunk in chunks if chunk.content.strip()), chunks[0])
+    def _coordinated_answer_contract(
+        result: CoordinatedRetrievalResult,
+    ) -> McpAnswerContract:
+        coverage_by_scope = {
+            group.scope.key: list(group.processing.get("coverage_topics", []))
+            for group in result.groups
+        }
+        completeness_required = any(coverage_by_scope.values())
+        flat_coverage = (
+            next(iter(coverage_by_scope.values()))
+            if len(coverage_by_scope) == 1
+            else []
+        )
+        return McpAnswerContract(
+            answer_mode=result.answer_mode,
+            completeness_required=completeness_required,
+            resolved_scopes=[McpToolHandler._scope_to_mcp(group.scope) for group in result.groups],
+            correction_notice=result.correction_notice,
+            clarification_prompt=result.clarification_prompt,
+            required_sections=list(_BROAD_REQUIRED_SECTIONS) if completeness_required else [],
+            coverage_topics=list(flat_coverage),
+            coverage_topics_by_scope=coverage_by_scope,
+            synthesis_rules=list(_BROAD_SYNTHESIS_RULES) if completeness_required else [],
+            diagnostics={
+                **McpToolHandler._coordinated_processing(result),
+                "coverage_topic_count_by_scope": {
+                    key: len(value) for key, value in coverage_by_scope.items()
+                },
+            },
+        )
 
     @staticmethod
-    def _is_igxl_query(query: str) -> bool:
-        q = query.lower()
-        if any(term in q for term in _NON_IGXL_TERMS):
-            return False
-        return any(term in q for term in _IGXL_QUERY_TERMS)
+    def _coordinated_answer_guidance(contract: McpAnswerContract) -> str:
+        if contract.answer_mode == "clarification":
+            return contract.clarification_prompt
+        base = (
+            "Use the provided scoped context package and citations to synthesize an answer. "
+            "Keep each resolved scope isolated and cite source_md and section_title for every claim."
+        )
+        if contract.answer_mode == "platform_comparison":
+            base += " Provide separate sections for each resolved scope."
+        if contract.completeness_required:
+            base += " This question requires complete coverage of the scoped coverage topics."
+        return base
 
     @staticmethod
     def _is_smt7_or_v93000_chunk(chunk: Chunk) -> bool:
         sm = chunk.source_md.lower()
-        if sm.startswith(("smt7/", "v93000/", "smt8/")):
+        if sm.startswith(("v93000/", "smt7/", "smt8/")):
             return True
         basename = sm.split("/")[-1]
         name_part = basename.split(".")[0]
@@ -543,28 +463,11 @@ class McpToolHandler:
             return True
         return "_" in name_part and name_part.split("_")[0].isdigit()
 
-    @staticmethod
-    def _filter_igxl_contamination(
-        query: str, results: list[tuple[Chunk, float]]
-    ) -> list[tuple[Chunk, float]]:
-        """Backward-compatible wrapper around bidirectional ecosystem filtering.
-
-        Also excludes TDC chunks for IG-XL queries unless they have an IG-XL
-        source_md path (handles test fixtures that default platform to TDC).
-        """
-        if not McpToolHandler._is_igxl_query(query):
-            return results
-        filtered: list[tuple[Chunk, float]] = []
-        for chunk, score in results:
-            if McpToolHandler._is_smt7_or_v93000_chunk(chunk):
-                continue
-            if chunk.platform == "TDC" and not chunk.source_md.lower().startswith("igxl/"):
-                continue
-            filtered.append((chunk, score))
-        return filtered
-
     async def handle_search(self, args: dict[str, Any]) -> McpSearchResult:
         """Handle ate_kb.search."""
+        if self.coordinator is not None:
+            return await self._handle_search_coordinated(args)
+
         query = args["query"]
         top_k = args.get("top_k", 10)
         user_filters = args.get("filters") or None
@@ -588,11 +491,10 @@ class McpToolHandler:
             top_k=top_k,
             filters=filters,
         )
-        max_results = self._result_limit_with_enrichment(query, top_k)
-        results = await self._augment_with_source_hints(
-            query, results, max_results=max_results
-        )
         results = self._apply_ecosystem_filter(query, results, plan)
+        max_results = self._result_limit_with_enrichment(
+            query, top_k, is_broad_concept=plan.is_broad_concept
+        )
         results = results[:max_results]
 
         chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
@@ -605,8 +507,36 @@ class McpToolHandler:
             sources=sources,
         )
 
+    async def _handle_search_coordinated(self, args: dict[str, Any]) -> McpSearchResult:
+        query = args["query"]
+        result = await self.coordinator.search(
+            query,
+            top_k=args.get("top_k", 10),
+            filters=args.get("filters") or None,
+        )
+        if result.answer_mode == "clarification":
+            return McpSearchResult(
+                query=query,
+                total=0,
+                chunks=[],
+                sources=[],
+                message=result.clarification_prompt,
+            )
+        flat = self._flatten_coordinated(result)
+        chunks = [_chunk_to_mcp(chunk, score) for chunk, score in flat]
+        return McpSearchResult(
+            query=query,
+            total=len(chunks),
+            chunks=chunks,
+            sources=build_sources_summary(chunks),
+            message=result.correction_notice,
+        )
+
     async def handle_retrieve(self, args: dict[str, Any]) -> McpRetrieveResult:
         """Handle ate_kb.retrieve."""
+        if self.coordinator is not None:
+            return await self._handle_retrieve_coordinated(args)
+
         query = args["query"]
         top_k = args.get("top_k", 10)
         user_filters = args.get("filters") or None
@@ -614,17 +544,25 @@ class McpToolHandler:
         expand_parents = args.get("expand_parents", True)
         expand_siblings = args.get("expand_siblings", True)
         compress = args.get("compress", True)
-        max_tokens = args.get("max_tokens", 4000)
+        requested_max_tokens = args.get("max_tokens")
 
         plan = self.planner.plan(query)
 
         if plan.is_blocked:
             return McpRetrieveResult(
-                query=query, total=0, chunks=[], context_package=None, message=plan.block_reason or ""
+                query=query,
+                total=0,
+                chunks=[],
+                context_package=None,
+                message=plan.block_reason or "",
             )
         if plan.is_ambiguous:
             return McpRetrieveResult(
-                query=query, total=0, chunks=[], context_package=None, message=plan.clarification_prompt or ""
+                query=query,
+                total=0,
+                chunks=[],
+                context_package=None,
+                message=plan.clarification_prompt or "",
             )
 
         filters = self._merge_filters(plan.inferred_filters, user_filters)
@@ -640,26 +578,84 @@ class McpToolHandler:
             compress=compress,
         )
         results = self._apply_ecosystem_filter(query, results, plan)
-        max_results = self._result_limit_with_enrichment(query, top_k)
-        results = await self._augment_with_source_hints(
-            query, results, max_results=max_results
+        max_results = self._result_limit_with_enrichment(
+            query, top_k, is_broad_concept=plan.is_broad_concept
         )
-        results = self._apply_ecosystem_filter(query, results, plan)
         results = results[:max_results]
         chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
+        max_tokens = self._context_token_budget(plan, requested_max_tokens)
         context_package = build_context_package(results, max_tokens=max_tokens)
+
+        stats = self.pipeline._last_retrieval_stats
+        processing_info = {
+            "planner_inferred_filters": plan.inferred_filters,
+            "dense_candidate_count": stats.get("dense_candidate_count", len(results)),
+            "sparse_candidate_count": stats.get("sparse_candidate_count", 0),
+            "fused_candidate_count": stats.get("fused_candidate_count", len(results)),
+            "sparse_search_used": stats.get("sparse_search_used", False),
+            "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
+            "graph_expanded_source_count": stats.get("graph_expanded_source_count", 0),
+            "graph_expanded_chunk_count": stats.get("graph_expanded_chunk_count", 0),
+            "post_rerank_candidate_count": stats.get("post_rerank_candidate_count", 0),
+            "post_rerank_source_count": stats.get("post_rerank_source_count", 0),
+            "post_diversity_candidate_count": stats.get("post_diversity_candidate_count", 0),
+            "post_diversity_source_count": stats.get("post_diversity_source_count", 0),
+            "final_context_source_count": stats.get("final_context_source_count", 0),
+            "final_context_token_estimate": stats.get("final_context_token_estimate", 0),
+            "reranked_candidate_count": stats.get("reranked_candidate_count", len(results) if rerank else 0),
+            "final_source_files": sorted({c.source_md for c in chunks if c.source_md}),
+            **self._broad_processing(stats),
+            "reranked": rerank,
+            "expanded": expand_parents or expand_siblings,
+            "compressed": compress,
+        }
 
         return McpRetrieveResult(
             query=query,
             total=len(chunks),
-            processing={
-                "reranked": rerank,
-                "expanded": expand_parents or expand_siblings,
-                "compressed": compress,
-                "vector_candidates": len(results),
-            },
+            processing=processing_info,
+            answer_contract=self._answer_contract(plan, processing_info),
             chunks=chunks,
             context_package=context_package,
+        )
+
+    async def _handle_retrieve_coordinated(self, args: dict[str, Any]) -> McpRetrieveResult:
+        query = args["query"]
+        result = await self.coordinator.retrieve(
+            query,
+            top_k=args.get("top_k", 10),
+            filters=args.get("filters") or None,
+            rerank=args.get("rerank", True),
+            expand_parents=args.get("expand_parents", True),
+            expand_siblings=args.get("expand_siblings", True),
+            compress=args.get("compress", True),
+        )
+        contract = self._coordinated_answer_contract(result)
+        if result.answer_mode == "clarification":
+            return McpRetrieveResult(
+                query=query,
+                total=0,
+                processing=self._coordinated_processing(result),
+                answer_contract=contract,
+                chunks=[],
+                context_package=None,
+                message=result.clarification_prompt,
+            )
+
+        flat = self._flatten_coordinated(result)
+        chunks = [_chunk_to_mcp(chunk, score) for chunk, score in flat]
+        context_package = build_scoped_context_package(
+            [(group.scope, group.chunks) for group in result.groups],
+            max_tokens=args.get("max_tokens", 4000),
+        )
+        return McpRetrieveResult(
+            query=query,
+            total=len(chunks),
+            processing=self._coordinated_processing(result),
+            answer_contract=contract,
+            chunks=chunks,
+            context_package=context_package,
+            message=result.correction_notice,
         )
 
     async def handle_ask(self, args: dict[str, Any]) -> McpAskResult:
@@ -667,6 +663,9 @@ class McpToolHandler:
 
         Phase 1: No LLM synthesis. Returns grounded context package + citations.
         """
+        if self.coordinator is not None:
+            return await self._handle_ask_coordinated(args)
+
         question = args["question"]
         top_k = args.get("top_k", 8)
         user_filters = args.get("filters") or None
@@ -699,18 +698,21 @@ class McpToolHandler:
 
         filters = self._merge_filters(plan.inferred_filters, user_filters)
 
-        results: list[tuple[Chunk, float]] = await self.pipeline.search_enriched(
-            query=question,
+        results: list[tuple[Chunk, float]] = await self.pipeline.retrieve_enriched(
+            query=plan.enhanced_query,
             plan=plan,
-            top_k=top_k,
+            top_k=top_k * 2,
             filters=filters,
+            expand_parents=True,
+            expand_siblings=True,
+            rerank=True,
+            compress=True,
         )
         results = self._apply_ecosystem_filter(question, results, plan)
-        max_results = self._result_limit_with_enrichment(question, top_k)
-        results = await self._augment_with_source_hints(
-            question, results, max_results=max_results
+        max_results = self._result_limit_with_enrichment(
+            question, top_k, is_broad_concept=plan.is_broad_concept
         )
-        results = self._apply_ecosystem_filter(question, results, plan)
+        results = results[:max_results]
         chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
 
         citations = [
@@ -731,19 +733,128 @@ class McpToolHandler:
 
         context_package = None
         if include_context:
-            context_package = build_context_package(results)
+            context_package = build_context_package(
+                results,
+                max_tokens=self._context_token_budget(plan),
+            )
 
+        stats = self.pipeline._last_retrieval_stats
+        processing_info = {
+            "planner_inferred_filters": plan.inferred_filters,
+            "dense_candidate_count": stats.get("dense_candidate_count", len(results)),
+            "sparse_candidate_count": stats.get("sparse_candidate_count", 0),
+            "fused_candidate_count": stats.get("fused_candidate_count", len(results)),
+            "sparse_search_used": stats.get("sparse_search_used", False),
+            "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
+            "graph_expanded_source_count": stats.get("graph_expanded_source_count", 0),
+            "graph_expanded_chunk_count": stats.get("graph_expanded_chunk_count", 0),
+            "post_rerank_candidate_count": stats.get("post_rerank_candidate_count", 0),
+            "post_rerank_source_count": stats.get("post_rerank_source_count", 0),
+            "post_diversity_candidate_count": stats.get("post_diversity_candidate_count", 0),
+            "post_diversity_source_count": stats.get("post_diversity_source_count", 0),
+            "final_context_source_count": stats.get("final_context_source_count", 0),
+            "final_context_token_estimate": stats.get("final_context_token_estimate", 0),
+            "reranked_candidate_count": stats.get("reranked_candidate_count", len(results)),
+            "final_source_files": source_files,
+            **self._broad_processing(stats),
+            "reranked": True,
+            "expanded": True,
+            "compressed": True,
+        }
+
+        answer_contract = self._answer_contract(plan, processing_info)
         return McpAskResult(
             question=question,
-            answer=(
-                "Use the provided context package and citations to synthesize an answer. "
-                "Always cite source_md and section_title for every claim."
-            ),
+            answer=self._answer_guidance(plan, answer_contract),
             citations=citations,
             source_files=list(source_files),
             toc_paths=[list(tp) for tp in toc_paths],
             confidence=confidence,
             context_package=context_package,
+            processing=processing_info,
+            answer_contract=answer_contract,
+        )
+
+    async def _handle_ask_coordinated(self, args: dict[str, Any]) -> McpAskResult:
+        question = args["question"]
+        include_context = args.get("include_context_package", True)
+        result = await self.coordinator.retrieve(
+            question,
+            top_k=args.get("top_k", 8),
+            filters=args.get("filters") or None,
+            expand_parents=True,
+            expand_siblings=True,
+            rerank=True,
+            compress=True,
+        )
+        contract = self._coordinated_answer_contract(result)
+        if result.answer_mode == "clarification":
+            return McpAskResult(
+                question=question,
+                answer=contract.clarification_prompt,
+                citations=[],
+                source_files=[],
+                toc_paths=[],
+                confidence="low",
+                context_package=None,
+                message=contract.clarification_prompt,
+                processing=self._coordinated_processing(result),
+                answer_contract=contract,
+            )
+
+        flat = self._flatten_coordinated(result)
+        chunks = [_chunk_to_mcp(chunk, score) for chunk, score in flat]
+        citations = [
+            McpCitation(
+                chunk_id=chunk.id,
+                excerpt=chunk.content[:300],
+                source_md=chunk.source_md,
+                toc_path=chunk.toc_path,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+            )
+            for chunk in chunks
+        ]
+        context_package = None
+        if include_context:
+            context_package = build_scoped_context_package(
+                [(group.scope, group.chunks) for group in result.groups],
+                max_tokens=4000,
+            )
+        toc_paths = sorted({tuple(c.toc_path) for c in chunks if c.toc_path})
+        source_files = sorted({c.source_md for c in chunks if c.source_md})
+        return McpAskResult(
+            question=question,
+            answer=self._coordinated_answer_guidance(contract),
+            citations=citations,
+            source_files=list(source_files),
+            toc_paths=[list(tp) for tp in toc_paths],
+            confidence=compute_confidence(chunks),
+            context_package=context_package,
+            message=result.correction_notice,
+            processing=self._coordinated_processing(result),
+            answer_contract=contract,
+        )
+
+    @staticmethod
+    def _answer_guidance(
+        plan: RetrievalPlan,
+        answer_contract: McpAnswerContract,
+    ) -> str:
+        base = (
+            "Use the provided context package and citations to synthesize an answer. "
+            "Always cite source_md and section_title for every claim."
+        )
+        if not plan.is_broad_concept:
+            return base
+        return (
+            f"{base} This is a broad-concept question: provide a comprehensive answer using "
+            "the assembled context. A short overview alone is insufficient. Follow the "
+            f"answer_contract, inspect all {len(answer_contract.coverage_topics)} discovered "
+            "coverage_topics, and cover the core "
+            "purpose, discovered subtopics, execution behavior, examples, limitations, "
+            "warnings, and best practices when supported. Explicitly mark details that are "
+            "not confirmed by the KB."
         )
 
     async def handle_related(self, args: dict[str, Any]) -> McpRelatedResult:

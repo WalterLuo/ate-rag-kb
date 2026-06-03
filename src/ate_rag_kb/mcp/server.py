@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from ate_rag_kb.mcp.tools import TOOL_SCHEMAS, McpToolHandler
+from ate_rag_kb.retrieval.coordinator import build_retrieval_coordinator
 from ate_rag_kb.retrieval.pipeline import RetrievalPipeline
 from ate_rag_kb.utils.config import Config
 
@@ -63,7 +64,8 @@ class McpServerApp:
 
     def __init__(self, config: Config) -> None:
         self.pipeline = RetrievalPipeline(config)
-        self.handler = McpToolHandler(self.pipeline)
+        self.coordinator = build_retrieval_coordinator(config, self.pipeline)
+        self.handler = McpToolHandler(self.pipeline, coordinator=self.coordinator)
         self._server: Server = self._create_server()
 
     def _create_server(self) -> Server:

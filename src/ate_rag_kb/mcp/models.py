@@ -17,7 +17,10 @@ class McpChunkResult(BaseModel):
     subsection_title: str = Field(default="", description="Subsection title")
     source_md: str = Field(default="", description="Source markdown file path")
     toc_path: list[str] = Field(default_factory=list, description="TOC hierarchy")
+    vendor: str = Field(default="", description="ATE vendor")
     platform: str = Field(default="", description="Platform (TDC, J750, etc.)")
+    software: str = Field(default="", description="Software product")
+    software_release: str = Field(default="", description="Software release")
     doc_type: str = Field(default="", description="Document type")
     ecosystem: str = Field(default="", description="Ecosystem (v93000, igxl)")
     software_version: str = Field(default="", description="Software version (smt7, smt8)")
@@ -72,6 +75,60 @@ class McpSearchResult(BaseModel):
     )
 
 
+class McpResolvedScope(BaseModel):
+    """Canonical retrieval scope returned to MCP callers."""
+
+    vendor: str
+    platform: str
+    software: str
+    software_release: str = ""
+
+
+class McpAnswerContract(BaseModel):
+    """Machine-readable synthesis requirements for an MCP answer."""
+
+    answer_mode: str = Field(
+        default="direct",
+        description="direct, platform_comparison, or clarification",
+    )
+    completeness_required: bool = Field(
+        default=False,
+        description="True when a summary-only answer is insufficient",
+    )
+    resolved_scopes: list[McpResolvedScope] = Field(
+        default_factory=list,
+        description="Canonical retrieval scopes used for this response",
+    )
+    correction_notice: str = Field(
+        default="",
+        description="Notice when an exclusive symbol corrected the requested scope",
+    )
+    clarification_prompt: str = Field(
+        default="",
+        description="Question to ask the user when the request is ambiguous",
+    )
+    required_sections: list[str] = Field(
+        default_factory=list,
+        description="Answer sections to cover when supported by retrieved context",
+    )
+    coverage_topics: list[str] = Field(
+        default_factory=list,
+        description="Dynamically discovered content-bearing topics to inspect during synthesis",
+    )
+    coverage_topics_by_scope: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Coverage topics grouped by canonical scope key",
+    )
+    synthesis_rules: list[str] = Field(
+        default_factory=list,
+        description="Rules the calling agent must apply when composing the final answer",
+    )
+    diagnostics: dict = Field(
+        default_factory=dict,
+        description="Retrieval coverage indicators useful for answer validation",
+    )
+
+
 class McpRetrieveResult(BaseModel):
     """Output for ate_kb.retrieve tool."""
 
@@ -80,6 +137,10 @@ class McpRetrieveResult(BaseModel):
     processing: dict = Field(
         default_factory=dict,
         description="Flags indicating which processing steps ran",
+    )
+    answer_contract: McpAnswerContract = Field(
+        default_factory=McpAnswerContract,
+        description="Machine-readable synthesis requirements for the calling agent",
     )
     chunks: list[McpChunkResult]
     context_package: McpContextPackage | None = None
@@ -108,6 +169,14 @@ class McpAskResult(BaseModel):
     message: str = Field(
         default="",
         description="Optional block/ambiguity/clarification message",
+    )
+    processing: dict = Field(
+        default_factory=dict,
+        description="Processing metadata for observability",
+    )
+    answer_contract: McpAnswerContract = Field(
+        default_factory=McpAnswerContract,
+        description="Machine-readable synthesis requirements for the calling agent",
     )
 
 
@@ -143,8 +212,23 @@ class McpStatusResult(BaseModel):
     vector_size: int = 0
     embedding_model: str = ""
     platforms: list[str] = Field(default_factory=list)
+    vendors: list[str] = Field(default_factory=list)
+    softwares: list[str] = Field(default_factory=list)
+    software_releases: list[str] = Field(default_factory=list)
     doc_types: list[str] = Field(default_factory=list)
     ecosystems: list[str] = Field(default_factory=list)
     software_versions: list[str] = Field(default_factory=list)
     doc_families: list[str] = Field(default_factory=list)
     version: str = "0.1.0"
+    resolved_scopes: list["McpResolvedScope"] = Field(
+        default_factory=list,
+        description="Canonical retrieval scopes used for this response",
+    )
+    correction_notice: str = Field(
+        default="",
+        description="Notice when an exclusive symbol corrected the requested scope",
+    )
+    clarification_prompt: str = Field(
+        default="",
+        description="Question to ask the user when the request is ambiguous",
+    )
