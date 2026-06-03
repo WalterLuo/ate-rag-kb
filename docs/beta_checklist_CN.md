@@ -18,6 +18,44 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 - [ ] `data/qdrant_storage/` 存在
 - [ ] `uv run -m ate_rag_kb.cli.main status` 返回 `ok` 且 `total_chunks > 0`
 
+### 多平台生产重建与门禁
+
+用于验证 IG-XL / J750 与 SMT7 / V93000 不再互相污染。规范术语如下：
+
+| 厂商 | 测试平台 | 软件 |
+|------|----------|------|
+| Advantest | V93000 | SMT7、SMT8 |
+| Teradyne | J750 | IG-XL |
+
+- [ ] `configs/config.yaml` 的 `documents.enabled_scopes` 至少包含
+  `teradyne / j750 / igxl` 和 `advantest / v93000 / smt7`
+- [ ] Qdrant server 可连接：
+  ```bash
+  uv run -m ate_rag_kb.cli.main status
+  ```
+- [ ] 执行全量重建：
+  ```bash
+  uv run -m ate_rag_kb.cli.main ingest --dir data/raw/markdown
+  ```
+- [ ] 运行 deterministic acceptance matrix：
+  ```bash
+  uv run python -m pytest tests/retrieval/test_multi_platform_acceptance.py -q
+  ```
+- [ ] 验证重建产物和运行时检索行为：
+  ```bash
+  uv run scripts/validate_multi_platform_retrieval.py
+  ```
+- [ ] 重启 MCP server 后，通过 `ate_kb.ask` 验证以下查询：
+  `IG-XL 多 site 串行处理怎么实现？`、`SMT7 Site Control 怎么用？`、
+  `多 site 串行处理怎么实现？`、`SMT7 SelectFirst 怎么用？`
+- [ ] 验证 IG-XL 答案引用 `igxl/vbt/execSites.39.08.md`、
+  `igxl/vbt/execSites.39.09.md`、`igxl/vbt/execSites.39.45.md`，且包含
+  `SelectFirst`、`SelectNext`、`loopDone`
+- [ ] 验证 SMT7 答案引用 SMT7 来源，包含 `ON_FIRST_INVOCATION_BEGIN`，
+  且不混入 `SelectFirst`
+- [ ] 验证中性查询输出两段隔离答案：`J750 / IG-XL` 与 `V93000 / SMT7`
+- [ ] 验证 `SMT7 SelectFirst 怎么用？` 会给出纠正提示，并只从 IG-XL 来源回答
+
 ---
 
 ## B. MCP 配置
@@ -59,11 +97,11 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 
 | 序号 | 必须覆盖的内容 |
 |------|----------------|
-| 1 | 尽量引用 `29504.md` / `120084.md`。必须包含 `LIMIT(TM::COMPARE opl, DOUBLE low, TM::COMPARE oph, DOUBLE high)`、`TM::GT` / `TM::GE` / `TM::LT` / `TM::LE` / `TM::NA` 等比较符，以及代码级使用方式。 |
-| 2 | 必须引用 ARRAY 相关来源，例如 `130224.md`（`Array in MTL`）和 `102025.md`（`APG program file syntax`）。没有引用不能通过。 |
-| 3 | 必须引用 Site Match / site control 相关来源，例如 `21615.md`。需要解释 ON、OFF、AUTO、依次启动、同步启动，以及 shared analog/digital module 对默认行为的影响。 |
+| 1 | 尽量引用 `v93000/smt7/29504.md` / `v93000/smt7/120084.md`。必须包含 `LIMIT(TM::COMPARE opl, DOUBLE low, TM::COMPARE oph, DOUBLE high)`、`TM::GT` / `TM::GE` / `TM::LT` / `TM::LE` / `TM::NA` 等比较符，以及代码级使用方式。 |
+| 2 | 必须引用 ARRAY 相关来源，例如 `v93000/smt7/130224.md`（`Array in MTL`）和 `v93000/smt7/102025.md`（`APG program file syntax`）。没有引用不能通过。 |
+| 3 | 必须引用 Site Match / site control 相关来源，例如 `v93000/smt7/21615.md`。需要解释 ON、OFF、AUTO、依次启动、同步启动，以及 shared analog/digital module 对默认行为的影响。 |
 | 4 | 需要说明 port、pin、multi-port timing、多时钟域测试之间的关系。 |
-| 5 | 尽量引用 `101980.md` 等 timing file 来源。必须覆盖 device cycles、edges、waveforms、clocks、equation set、timing set、spec set、wavetable，以及 `.tim`、`.wvt`、`.eqn`、`.ac_spec` 等文件形式。 |
+| 5 | 尽量引用 `v93000/smt7/101980.md` 等 timing file 来源。必须覆盖 device cycles、edges、waveforms、clocks、equation set、timing set、spec set、wavetable，以及 `.tim`、`.wvt`、`.eqn`、`.ac_spec` 等文件形式。 |
 | 6 | 对 RDI_Configure 这类大文档，必须用 `ate_kb.get_document` 分页读取，不能一次性读取全文。 |
 | 7 | 对 technology file 这类大文档，必须用 `ate_kb.get_document` 分页读取，并引用具体来源。 |
 | 8 | 需要覆盖主要 testflow flags，并引用 flag 主文档或各 flag 子文档。 |
@@ -98,9 +136,9 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 
 | Source | 主题 | 要求 |
 |--------|------|------|
-| `146692.md` | RDI_Configure file | 使用 `limit` 读取，只在需要时继续按 `offset` 翻页 |
-| `13920.md` | Using the Timing Diagram Tool | 不允许一次性读取全文 |
-| `49363_2.md` | Technology file for a device | 使用分页并引用具体 section |
+| `v93000/smt7/146692.md` | RDI_Configure file | 使用 `limit` 读取，只在需要时继续按 `offset` 翻页 |
+| `v93000/smt7/13920.md` | Using the Timing Diagram Tool | 不允许一次性读取全文 |
+| `v93000/smt7/49363_2.md` | Technology file for a device | 使用分页并引用具体 section |
 
 ---
 
@@ -133,7 +171,21 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 
 ---
 
-## G. Beta 通过标准
+## G. Broad Concept Query 检查项
+
+对于 broad concept 类问题（如 Q3 site control、Q8 test flow flags）：
+
+- [ ] graph expansion 后的 source 不应被 reranker 全部裁掉
+- [ ] 必须检查 source diversity：MCP `processing` 中 `post_diversity_source_count >= 3`
+- [ ] 自动覆盖组装已执行：`broad_context_assembled == true`
+- [ ] `coverage_topics` 包含可用于回答的正文子主题，不能只有标题、图片或版本变更记录
+- [ ] `answer_contract.completeness_required == true`，最终回答不能只有摘要
+- [ ] 最终回答覆盖每个适用的 `answer_contract.coverage_topics` 项，或明确说明为何不纳入回答范围
+- [ ] 不允许依赖 source hints
+- [ ] 不允许只验证 graph 可达性，还要验证最终 context package 的 source 覆盖率
+- [ ] 记录 MCP processing 数据和调用耗时
+
+## H. Beta 通过标准
 
 满足以下全部条件时，Beta 试用通过：
 
@@ -144,6 +196,7 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 - [ ] 未观察到严重幻觉
 - [ ] MCP 工具调用稳定（无频繁 JSON-RPC 错误）
 - [ ] `get_document` 未返回超大 payload
+- [ ] Broad concept query 通过 G 节中的 source-diversity 检查
 - [ ] 所有失败案例已记录在上方的失败日志中
 
 第一次真实 Beta 试用结果见

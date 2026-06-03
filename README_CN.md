@@ -16,6 +16,16 @@
 |------|------|------|
 | ADVANTEST V93000 | SmarTest 7.4.3 / 7.10.11 | PinConfig、Level、Timing、Test Flow、SmartRDI、TML、DPS、PMU、Digital、TMU、RF |
 
+**ATE 规范术语：**
+
+| 厂商 | 测试平台 | 软件 |
+|---|---|---|
+| Advantest | V93000 | SMT7、SMT8 |
+| Teradyne | J750 | IG-XL |
+
+V93000 和 J750 是测试平台。SMT7、SMT8、IG-XL 是软件范围，用于导入、
+检索路由和引用隔离。
+
 **首次使用（约需 15-30 分钟）：**
 
 ```bash
@@ -131,9 +141,23 @@ vector_store:
 
 ## 文档范围
 
-默认只导入 V93000 / SmarTest 7 文档。如需启用 IG-XL，设置
-`documents.igxl.enabled: true` 即可；这是 IG-XL 的权威开关，不需要再把
-`"igxl"` 加入 `documents.enabled_ecosystems`。
+ATE 文档按 `vendor`、测试 `platform` 和 `software` 定义检索范围。
+当 `configs/config.yaml` 中存在 `documents.enabled_scopes` 时，它就是当前可检索范围的权威列表。
+当前多平台 profile 为：
+
+```yaml
+documents:
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
+```
+
+SMT8 应作为 `advantest / v93000 / smt8` 添加，而不是作为新的测试平台。
+修改文档范围配置后，需要执行一次全量 ingest，清理之前范围留下的旧 chunks。
 
 ## 从 Local Mode 迁移
 
@@ -182,9 +206,15 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 
 ```
 data/raw/
-├── markdown/     # .md 技术文档（内置文档已在此）
-├── json/         # 可选的元数据 sidecar
-└── assets/       # 图片、图表
+├── markdown/
+│   ├── v93000/smt7/   # V93000/SmarTest 7 内置文档
+│   └── igxl/          # IG-XL 文档（可选）
+├── json/
+│   ├── v93000/smt7/   # SMT7 元数据 sidecar
+│   └── igxl/          # IG-XL 元数据 sidecar
+└── assets/
+    ├── v93000/smt7/   # SMT7 文档图片
+    └── igxl/          # IG-XL 文档图片
 ```
 
 然后运行导入：
@@ -296,10 +326,38 @@ FastAPI / MCP  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
 
 RetrievalPipeline:
   HybridRetriever (vector + BM25)
+  -> DocumentGraphExpander (可选)
   -> Reranker (cross-encoder)
+  -> Broad-query coverage selection (可选)
   -> ParentChildExpander
+  -> BroadConceptAssembler（可选）
   -> ContextCompressor
 ```
+
+**检索行为说明：**
+
+- narrow query 保持较小的 rerank 输出预算（默认 top 5）。
+- broad concept query 使用受限的扩大预算，并通过 coverage-aware selection
+  保留来自不同来源和不同子主题的有效正文。
+- graph-expanded candidates 必须参与 rerank，使关联文档有机会进入最终结果。
+- `BroadConceptAssembler` 会在运行时遍历关联文档，优先处理概念枢纽页及其
+  正向子主题，补充代表性 document 或 section，并过滤图片占位、纯标题和版本变更等低价值片段。
+- 该机制是通用检索策略，不依赖 source hints 或领域特例。
+
+### 新增检索配置项
+
+以下配置项可在 `configs/config.yaml` 的 `retrieval.reranker` 下添加：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `broad_candidate_top_k` | broad query 在 coverage selection 前的候选预算 | 40 |
+| `broad_final_top_k` | broad query 经过 coverage selection 后的最终 chunk 数 | 14 |
+| `broad_max_sources` | broad query 结果中保留的最大不同 source 数量 | 8 |
+| `broad_min_sources` | topic 补齐前至少保留的不同 source 数 | 3 |
+| `broad_max_chunks_per_source` | 每个 source 在 rerank 后最多保留的 chunk 数 | 3 |
+
+`retrieval.broad_context` 用于控制自动上下文组装，默认最多发现 32 个 source，
+返回 16 个 chunk，并使用约 9000 tokens 的上下文预算。
 
 ## 开发命令
 

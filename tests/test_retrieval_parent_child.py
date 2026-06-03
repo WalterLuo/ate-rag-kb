@@ -39,6 +39,50 @@ class TestParentChildExpander:
         assert "s1" in ids
         assert "s2" in ids
 
+    def test_expand_filters_related_chunks_by_scope(self) -> None:
+        igxl_parent = Chunk(
+            id="p1",
+            content="IG-XL Parent",
+            chunk_type=ChunkType.SECTION,
+            vendor="teradyne",
+            platform="j750",
+            software="igxl",
+        )
+        smt7_sibling = Chunk(
+            id="s1",
+            content="SMT7 Sibling",
+            chunk_type=ChunkType.PARAGRAPH,
+            vendor="advantest",
+            platform="v93000",
+            software="smt7",
+        )
+        store = MagicMock()
+        store.get_by_ids.side_effect = lambda cids: [
+            {"p1": igxl_parent, "s1": smt7_sibling}.get(cid) for cid in cids
+        ]
+
+        expander = ParentChildExpander()
+        chunks = [
+            Chunk(
+                id="c1",
+                content="Child",
+                chunk_type=ChunkType.PARAGRAPH,
+                parent_id="p1",
+                sibling_ids=["s1"],
+                vendor="teradyne",
+                platform="j750",
+                software="igxl",
+            )
+        ]
+
+        result = expander.expand(
+            chunks,
+            store,
+            filters={"vendor": "teradyne", "platform": "j750", "software": "igxl"},
+        )
+
+        assert [chunk.id for chunk in result] == ["c1", "p1"]
+
     def test_expand_deduplicates(self) -> None:
         store = MagicMock()
         store.get_by_ids.return_value = []

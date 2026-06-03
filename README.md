@@ -21,6 +21,16 @@ placed under `./data/raw/markdown/`.
 |----------|---------|---------|
 | ADVANTEST V93000 | SmarTest 7.4.3 / 7.10.11 | PinConfig, Level, Timing, Test Flow, SmartRDI, TML, DPS, PMU, Digital, TMU, RF |
 
+**Canonical ATE terminology:**
+
+| Vendor | Tester platform | Software |
+|---|---|---|
+| Advantest | V93000 | SMT7, SMT8 |
+| Teradyne | J750 | IG-XL |
+
+V93000 and J750 are tester platforms. SMT7, SMT8, and IG-XL are software
+scopes used for ingestion, retrieval routing, and citation isolation.
+
 **First-time setup (approx. 15-30 min):**
 
 ```bash
@@ -141,9 +151,24 @@ Switching any of these settings automatically triggers a full re-ingest:
 
 ## Document Scope
 
-By default, only V93000 / SmarTest 7 documents are ingested. To enable IG-XL,
-set `documents.igxl.enabled: true`; this is the authoritative IG-XL switch and
-does not require adding `"igxl"` to `documents.enabled_ecosystems`.
+ATE documentation is scoped by `vendor`, tester `platform`, and `software`.
+When `documents.enabled_scopes` is present in `configs/config.yaml`, it is the
+authoritative list of searchable scopes. The current multi-platform profile is:
+
+```yaml
+documents:
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
+```
+
+SMT8 should be added as `advantest / v93000 / smt8`, not as a separate tester
+platform. After changing scope configuration, run a full ingest so stale chunks
+from previously enabled scopes are cleared.
 
 ## Migration from Local Mode
 
@@ -192,9 +217,15 @@ If you have additional Markdown files + JSON metadata, place them under:
 
 ```
 data/raw/
-├── markdown/     # .md technical docs (built-in docs already here)
-├── json/         # optional metadata sidecars
-└── assets/       # images, diagrams
+├── markdown/
+│   ├── v93000/smt7/   # V93000/SmarTest 7 built-in docs
+│   └── igxl/          # IG-XL docs (optional)
+├── json/
+│   ├── v93000/smt7/   # metadata sidecars for SMT7
+│   └── igxl/          # metadata sidecars for IG-XL
+└── assets/
+    ├── v93000/smt7/   # images for SMT7 docs
+    └── igxl/          # images for IG-XL docs
 ```
 
 Then run ingestion:
@@ -315,10 +346,42 @@ FastAPI / MCP  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
 
 RetrievalPipeline:
   HybridRetriever (vector + BM25)
+  -> DocumentGraphExpander (optional)
   -> Reranker (cross-encoder)
+  -> Broad-query coverage selection (optional)
   -> ParentChildExpander
+  -> BroadConceptAssembler (optional)
   -> ContextCompressor
 ```
+
+**Retrieval behavior notes:**
+
+- Narrow queries keep a small rerank output budget (default top 5).
+- Broad concept queries use an expanded candidate budget and coverage-aware
+  selection to retain content-bearing chunks from different sources and topics.
+- Graph-expanded candidates always participate in reranking so linked
+  documents have a chance to surface.
+- `BroadConceptAssembler` follows related document links at runtime, prioritizes
+  concept hubs and their forward-linked subtopics, adds
+  representative document or section chunks, and removes low-utility image,
+  title-only, and functional-change chunks from broad-answer context.
+- Coverage assembly is a general retrieval strategy; it does not depend on
+  hardcoded source hints or domain-specific exceptions.
+
+### New retrieval configuration options
+
+These keys can be added to `configs/config.yaml` under `retrieval.reranker`:
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `broad_candidate_top_k` | Candidate budget before coverage selection for broad queries | 40 |
+| `broad_final_top_k` | Final chunk count after coverage selection for broad queries | 14 |
+| `broad_max_sources` | Maximum distinct sources to retain in a broad query result | 8 |
+| `broad_min_sources` | Minimum source-diverse base before topic coverage fill | 3 |
+| `broad_max_chunks_per_source` | Maximum reranked chunks retained per source | 3 |
+
+The `retrieval.broad_context` section controls automatic context assembly. Its
+default budget is 32 discovered sources, 16 final chunks, and about 9000 tokens.
 
 ## Development Commands
 

@@ -59,6 +59,42 @@ Default flow: user question -> `ate_kb.retrieve` or `ate_kb.ask` -> inspect
 `context_package` and citations -> `ate_kb.get_document` if full-document
 context is needed -> synthesize the answer.
 
+### Broad Concept Answer Policy
+
+For broad ATE concept questions, do not stop at the first retrieved chunks.
+
+`ate_kb.retrieve` and `ate_kb.ask` automatically assemble bounded context from
+content-bearing chunks and related subtopics. Inspect the returned
+`coverage_topics` first. If important details are still missing, call
+`ate_kb.get_document` with explicit `limit` / `offset` for the discovered main
+topic and subtopics.
+
+When the MCP response contains
+`answer_contract.completeness_required == true`, treat that contract as
+mandatory. Do not return only a short overview. Cover each applicable
+`answer_contract.coverage_topics` item, or briefly state why it is outside the
+answer scope.
+
+A complete broad answer should cover, when applicable:
+
+1. Core concept and purpose
+2. Related windows, flags, commands, APIs, or configuration fields
+3. Common usage scenarios
+4. Execution behavior and examples
+5. Limitations, warnings, and best practices
+6. Unsupported or unverified claims explicitly marked as unconfirmed
+7. Complete citations with `source_md` and `section_title`
+
+Do not invent unsupported details. If a detail is plausible but not found in
+the current KB context, label it as not confirmed by the KB.
+
+Example: For Site Control questions, inspect related documents such as
+`v93000/smt7/100118.md`, `v93000/smt7/100096.md`,
+`v93000/smt7/100168.md`, `v93000/smt7/13863.md`,
+`v93000/smt7/100119.md`, `v93000/smt7/100324.md`,
+`v93000/smt7/20264.md`, and `v93000/smt7/21615.md` when they are
+discovered as related sources.
+
 ## Directory Layout
 
 | Path | Purpose |
@@ -119,14 +155,43 @@ uv run -m ate_rag_kb.cli.main status
 5. Batch size defaults to 1000 chunks; memory errors trigger recursive halving
 
 ### Retrieval Flow
+
 1. `RetrievalPipeline.retrieve` (async)
 2. `HybridRetriever.retrieve` (sync, wrapped in `asyncio.to_thread`)
    - Vector search via `QdrantVectorStore.search` (top 20)
-   - BM25 on vector candidates via `rank_bm25`
-   - Reciprocal Rank Fusion
-3. Optional: `Reranker.rerank` (cross-encoder, top 5)
-4. Optional: `ParentChildExpander.expand` (batched `get_by_ids`)
-5. Optional: `ContextCompressor.compress` (dedup, merge adjacent, token cap)
+   - Sparse vector search (corpus-wide) if available
+   - Reciprocal Rank Fusion (dense + sparse)
+   - Legacy BM25 fallback when sparse is unavailable
+3. Optional: `DocumentGraphExpander.expand`
+   - Follows internal document links with bounded hops
+   - Narrow queries: 1 hop, limited budget
+   - Broad concept queries: up to 2 hops, expanded budget
+4. Optional: `Reranker.rerank` (cross-encoder)
+   - **Graph-expanded candidates always participate in reranking**
+   - Narrow queries: retain top 5 (default)
+   - Broad concept queries: use independent candidate budget and
+     source-diverse selection to preserve coverage across multiple documents
+5. Optional: `ParentChildExpander.expand` (batched `get_by_ids`)
+6. Optional: `ContextCompressor.compress` (dedup, merge adjacent, token cap)
+
+**Query-type behavior:**
+
+| Aspect | Narrow Query | Broad Concept Query |
+|--------|-------------|---------------------|
+| Graph hops | 1 | Up to 2 |
+| Rerank budget | Small (top 5) | Expanded (`broad_candidate_top_k`) |
+| Source diversity | Not applied | Applied (`broad_max_sources`) |
+| Final top-k | Default | `broad_final_top_k` |
+
+**Phase boundaries:**
+
+- **Phase 1** (`retrieve` / `ask` without planner): Provides complete,
+  traceable grounded context. The pipeline returns raw chunks + citations
+  for agent synthesis. No LLM synthesis occurs in this phase.
+- **Phase 2** (planner-driven `retrieve_enriched` / `search_enriched`): Handles
+  dynamic retrieval planning, automatic pagination, and answer organization.
+  The planner detects broad concepts, applies ecosystem filters, and boosts
+  title matches without requiring the engineer to specify retrieval strategy.
 
 ### /ask Flow
 1. `routes.ask` -> `retriever.search` (NOT retrieve; no rerank/expand by default)

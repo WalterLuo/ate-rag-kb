@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from ate_rag_kb.chunking.models import Chunk
+from ate_rag_kb.domain.scopes import RetrievalScope
 from ate_rag_kb.mcp.models import McpChunkResult, McpContextPackage
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,10 @@ def _chunk_to_mcp(chunk: Chunk, score: float = 0.0, is_expanded: bool = False) -
         subsection_title=chunk.subsection_title,
         source_md=chunk.source_md,
         toc_path=chunk.toc_path,
+        vendor=chunk.vendor,
         platform=chunk.platform,
+        software=chunk.software,
+        software_release=chunk.software_release,
         doc_type=chunk.doc_type,
         ecosystem=chunk.ecosystem,
         software_version=chunk.software_version,
@@ -34,6 +38,56 @@ def _chunk_to_mcp(chunk: Chunk, score: float = 0.0, is_expanded: bool = False) -
         sibling_ids=chunk.sibling_ids,
         child_ids=chunk.child_ids,
         is_expanded=is_expanded,
+    )
+
+
+def build_scoped_context_package(
+    groups: list[tuple[RetrievalScope, list[tuple[Chunk, float]]]],
+    max_tokens: int = 4000,
+) -> McpContextPackage:
+    """Format grouped scoped chunks without flattening platform boundaries."""
+    parts: list[str] = []
+    citation_map: list[dict] = []
+    token_estimate = 0
+    citation_index = 1
+    scope_budget = max(1, max_tokens // max(1, len(groups)))
+
+    for scope, chunks in groups:
+        header = f"## {scope.platform.upper()} / {scope.software.upper()}\n"
+        parts.append(header)
+        token_estimate += len(header) // 4
+        scope_tokens = 0
+
+        for chunk, _score in chunks:
+            entry = (
+                f'[{citation_index}] From "{chunk.doc_title or "Unknown"}" '
+                f'> "{chunk.section_title or "Unknown"}":\n'
+                f"    {chunk.content.strip()}\n"
+            )
+            entry_tokens = max(1, len(entry) // 4)
+            if scope_tokens + entry_tokens > scope_budget:
+                break
+
+            parts.append(entry)
+            token_estimate += entry_tokens
+            scope_tokens += entry_tokens
+            citation_map.append(
+                {
+                    "index": citation_index,
+                    "scope": scope.key,
+                    "chunk_id": chunk.id,
+                    "source_md": chunk.source_md,
+                    "toc_path": chunk.toc_path,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
+                }
+            )
+            citation_index += 1
+
+    return McpContextPackage(
+        text="\n".join(parts),
+        token_estimate=token_estimate,
+        citation_map=citation_map,
     )
 
 

@@ -34,11 +34,14 @@ User question:
 {question}
 
 Instructions:
-1. Answer concisely but completely
+1. For a narrow question, answer concisely but completely
 2. Cite the source document and section for each key claim
 3. If the context is insufficient, say so explicitly
 4. Use ATE terminology consistently with the source material
 5. Prefer step-by-step instructions when the question asks "how to"
+6. For a broad concept question, do not return only a short overview: organize
+   the answer into sections and cover the applicable discovered subtopics,
+   execution behavior, examples, limitations, warnings, and best practices
 """
 
 # ---------------------------------------------------------------------------

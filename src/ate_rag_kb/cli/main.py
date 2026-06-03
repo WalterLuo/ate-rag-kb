@@ -67,7 +67,10 @@ async def _cmd_ingest(args: argparse.Namespace) -> int:
     _ = encoder.vector_size
     logger.info("Embedding model ready: %s on %s", encoder.model_name, encoder.device)
 
-    vector_store = QdrantVectorStore(config)
+    vector_store = QdrantVectorStore(
+        config,
+        allow_incompatible_schema=True,
+    )
     pipeline = IngestionPipeline(
         config, encoder, vector_store,
         toc_tree=toc_tree,
@@ -80,17 +83,20 @@ async def _cmd_ingest(args: argparse.Namespace) -> int:
         state_file = _get_state_file(config)
         incremental = IncrementalIngestion(pipeline, state_file=state_file)
 
-        if incremental.needs_full_rebuild():
+        if not vector_store.schema_compatible or incremental.needs_full_rebuild():
             logger.warning(
                 "Profile mismatch or first run detected. Clearing collection and performing full re-ingest."
             )
             pipeline.vector_store.clear_collection()
             if incremental.state_file.exists():
                 incremental.state_file.unlink()
+            pipeline.rebuild_sparse_vocabulary(markdown_dir)
 
         stats = incremental.run_incremental(markdown_dir, json_dir=json_dir)
         logger.info("Incremental ingestion: %s", stats)
     else:
+        pipeline.vector_store.clear_collection()
+        pipeline.rebuild_sparse_vocabulary(markdown_dir)
         total = pipeline.ingest_directory(markdown_dir, json_dir=json_dir)
         logger.info("Ingested %d chunks", total)
     return 0

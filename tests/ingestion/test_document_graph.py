@@ -88,6 +88,18 @@ class TestMarkdownLinkParser:
         links = MarkdownLinkParser.extract_links(text)
         assert links == ["content.md"]
 
+    def test_extracts_md_links_with_fragment_or_query(self) -> None:
+        text = (
+            "[Fragment](execSites.39.09.md#selectnext) "
+            "[Query](execSites.39.10.md?view=full)"
+        )
+        links = MarkdownLinkParser.extract_links(text)
+        assert links == ["execSites.39.09.md", "execSites.39.10.md"]
+
+    def test_extracts_raw_html_md_links(self) -> None:
+        text = '<a href="execSites.39.09.md">SelectNext</a>'
+        links = MarkdownLinkParser.extract_links(text)
+        assert links == ["execSites.39.09.md"]
 
 class TestDocumentGraphBuilder:
     @pytest.fixture

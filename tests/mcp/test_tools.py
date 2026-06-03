@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import json
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
 from ate_rag_kb.mcp.tools import McpToolHandler
+from ate_rag_kb.domain.scopes import (
+    ADVANTEST_V93000_SMT7,
+    ADVANTEST_V93000_SMT8,
+    TERADYNE_J750_IGXL,
+)
+from ate_rag_kb.ingestion.symbol_catalog import SymbolCatalog
+from ate_rag_kb.retrieval.document_graph_expander import DocumentGraphExpander
+from ate_rag_kb.retrieval.coordinator import RetrievalCoordinator
+from ate_rag_kb.retrieval.pipeline import ScopedPipelineResult
+from ate_rag_kb.retrieval.pipeline import RetrievalPipeline
+from ate_rag_kb.retrieval.planner import RetrievalPlanner
+from ate_rag_kb.retrieval.routing import ScopeRouter
 from ate_rag_kb.utils.config import Config
 
 
@@ -16,12 +30,52 @@ class TestMcpToolHandler:
     def handler(self) -> McpToolHandler:
         pipeline = AsyncMock()
         pipeline.config = Config({"documents": {"igxl": {"enabled": True}}})
+        pipeline._last_retrieval_stats = {}
         return McpToolHandler(pipeline)
 
     def _make_handler(self) -> McpToolHandler:
         pipeline = AsyncMock()
         pipeline.config = Config({"documents": {"igxl": {"enabled": True}}})
+        pipeline._last_retrieval_stats = {}
         return McpToolHandler(pipeline)
+
+    def _make_coordinated_handler(
+        self,
+        *,
+        include_smt8: bool = False,
+    ) -> tuple[McpToolHandler, MagicMock]:
+        pipeline = MagicMock()
+        pipeline.config = Config({})
+        enabled_scopes = [TERADYNE_J750_IGXL, ADVANTEST_V93000_SMT7]
+        if include_smt8:
+            enabled_scopes.append(ADVANTEST_V93000_SMT8)
+
+        async def retrieve_scope(**kwargs):
+            scope = kwargs["scope"]
+            chunk = self._make_chunk(
+                chunk_id=scope.key.replace("/", "-"),
+                source_md=f"{scope.platform}/{scope.software}/doc.md",
+                doc_title=f"{scope.platform} {scope.software}",
+                section_title="Scoped Section",
+                platform=scope.platform,
+            )
+            chunk.vendor = scope.vendor
+            chunk.platform = scope.platform
+            chunk.software = scope.software
+            chunk.software_release = scope.software_release
+            return ScopedPipelineResult(
+                chunks=[(chunk, 0.9)],
+                processing={
+                    "coverage_topics": [f"{scope.key} topic"],
+                    "cross_scope_dropped_chunk_count": 0,
+                },
+            )
+
+        pipeline.retrieve_scope = AsyncMock(side_effect=retrieve_scope)
+        pipeline.search_scope = AsyncMock(side_effect=retrieve_scope)
+        router = ScopeRouter(tuple(enabled_scopes), SymbolCatalog.empty())
+        coordinator = RetrievalCoordinator(router, RetrievalPlanner(Config({})), pipeline)
+        return McpToolHandler(pipeline, coordinator=coordinator), pipeline
 
     def _make_chunk(
         self,
@@ -70,7 +124,6 @@ class TestMcpToolHandler:
     async def test_handle_retrieve(self, handler: McpToolHandler) -> None:
         chunk = self._make_chunk()
         handler.pipeline.retrieve_enriched = AsyncMock(return_value=[(chunk, 0.85)])
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_retrieve({"query": "test"})
 
@@ -82,6 +135,34 @@ class TestMcpToolHandler:
         assert result.context_package is not None
         assert len(result.context_package.citation_map) == 1
         assert result.context_package.citation_map[0]["source_md"] == "doc.md"
+        assert result.answer_contract.answer_mode == "direct"
+        assert result.answer_contract.completeness_required is False
+
+    @pytest.mark.asyncio
+    async def test_handle_retrieve_returns_broad_answer_contract(
+        self, handler: McpToolHandler
+    ) -> None:
+        chunk = self._make_chunk()
+        handler.pipeline.retrieve_enriched = AsyncMock(return_value=[(chunk, 0.85)])
+        handler.pipeline._last_retrieval_stats = {
+            "broad_context_assembled": True,
+            "coverage_topics": ["The states of the sites", "Allow parallel flag"],
+            "final_context_source_count": 4,
+            "final_context_token_estimate": 3200,
+        }
+
+        result = await handler.handle_retrieve(
+            {"query": "SMT7中site control的作用是什么"}
+        )
+
+        assert result.answer_contract.answer_mode == "broad_concept"
+        assert result.answer_contract.completeness_required is True
+        assert result.answer_contract.coverage_topics == [
+            "The states of the sites",
+            "Allow parallel flag",
+        ]
+        assert result.answer_contract.diagnostics["coverage_topic_count"] == 2
+        assert result.answer_contract.diagnostics["final_context_source_count"] == 4
 
     @pytest.mark.asyncio
     async def test_handle_retrieve_job_list_enriched(self) -> None:
@@ -103,7 +184,6 @@ class TestMcpToolHandler:
         handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(job_list_127, 0.95), (job_list_128, 0.9)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_retrieve(
             {"query": "在 ig-xl 中 job list 有什么用"}
@@ -114,59 +194,13 @@ class TestMcpToolHandler:
         assert "igxl/datatool/DTSheets.11.128.md" in source_mds
 
     @pytest.mark.asyncio
-    async def test_handle_retrieve_adds_array_source_hints(self, handler: McpToolHandler) -> None:
-        generic = self._make_chunk(
-            chunk_id="generic",
-            source_md="29013.md",
-            doc_title="DSP_IFFT",
-            section_title="Example",
-        )
-        array_x = self._make_chunk(
-            chunk_id="array_x",
-            source_md="20847.md",
-            doc_title="How to handle ARRAY_x data type",
-            section_title="Defining an array",
-        )
-        array_mtl = self._make_chunk(
-            chunk_id="array_mtl",
-            source_md="130224.md",
-            doc_title="Array in MTL",
-            section_title="Array in MTL",
-        )
-        apg_syntax = self._make_chunk(
-            chunk_id="apg_syntax",
-            source_md="102025.md",
-            doc_title="APG program file syntax",
-            section_title="APG program file syntax",
-        )
-        docs = {
-            "20847.md": [array_x],
-            "130224.md": [array_mtl],
-            "102025.md": [apg_syntax],
-        }
-        handler.pipeline.retrieve_enriched = AsyncMock(return_value=[(generic, 0.6)])
-        handler.pipeline.get_document = AsyncMock(side_effect=lambda source_md: docs[source_md])
-
-        result = await handler.handle_retrieve({"query": "smt7中ARRAY在代码中的作用是什么"})
-
-        source_mds = [chunk.source_md for chunk in result.chunks]
-        assert source_mds[:3] == ["20847.md", "130224.md", "102025.md"]
-        assert "29013.md" in source_mds
-        assert result.context_package is not None
-        assert [
-            item["source_md"]
-            for item in result.context_package.citation_map[:3]
-        ] == ["20847.md", "130224.md", "102025.md"]
-
-    @pytest.mark.asyncio
     async def test_handle_ask(self, handler: McpToolHandler) -> None:
         c1 = self._make_chunk(chunk_id="c1", score=0.95)
         c2 = self._make_chunk(chunk_id="c2", score=0.7)
         c3 = self._make_chunk(chunk_id="c3", score=0.6)
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(c1, 0.95), (c2, 0.7), (c3, 0.6)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask({"question": "how to test?"})
 
@@ -179,61 +213,136 @@ class TestMcpToolHandler:
         assert result.context_package is not None
 
     @pytest.mark.asyncio
-    async def test_handle_ask_adds_array_source_hints(self, handler: McpToolHandler) -> None:
-        generic = self._make_chunk(
-            chunk_id="generic",
-            source_md="30471.md",
-            doc_title="DSP_SETTLING",
-            section_title="Example",
-        )
-        array_x = self._make_chunk(
-            chunk_id="array_x",
-            source_md="20847.md",
-            doc_title="How to handle ARRAY_x data type",
-            section_title="Defining an array",
-        )
-        array_mtl = self._make_chunk(
-            chunk_id="array_mtl",
-            source_md="130224.md",
-            doc_title="Array in MTL",
-            section_title="Array in MTL",
-        )
-        apg_syntax = self._make_chunk(
-            chunk_id="apg_syntax",
-            source_md="102025.md",
-            doc_title="APG program file syntax",
-            section_title="APG program file syntax",
-        )
-        docs = {
-            "20847.md": [array_x],
-            "130224.md": [array_mtl],
-            "102025.md": [apg_syntax],
-        }
-        handler.pipeline.search_enriched = AsyncMock(return_value=[(generic, 0.6)])
-        handler.pipeline.get_document = AsyncMock(side_effect=lambda source_md: docs[source_md])
+    async def test_ask_returns_isolated_context_sections(self) -> None:
+        handler, pipeline = self._make_coordinated_handler()
 
-        result = await handler.handle_ask({"question": "smt7中ARRAY在代码中的作用是什么"})
+        result = await handler.handle_ask({"question": "多 site 串行处理怎么实现？"})
 
-        assert result.source_files[:3] == ["102025.md", "130224.md", "20847.md"]
-        assert [citation.source_md for citation in result.citations[:3]] == [
-            "20847.md",
-            "130224.md",
-            "102025.md",
-        ]
-        assert result.context_package is not None
+        assert result.answer_contract.answer_mode == "platform_comparison"
         assert [
-            item["source_md"]
-            for item in result.context_package.citation_map[:3]
-        ] == ["20847.md", "130224.md", "102025.md"]
+            scope.model_dump(exclude_defaults=True)
+            for scope in result.answer_contract.resolved_scopes
+        ] == [
+            {"vendor": "teradyne", "platform": "j750", "software": "igxl"},
+            {"vendor": "advantest", "platform": "v93000", "software": "smt7"},
+        ]
+        assert set(result.answer_contract.coverage_topics_by_scope) == {
+            "j750/igxl",
+            "v93000/smt7",
+        }
+        assert result.context_package is not None
+        assert "## J750 / IGXL" in result.context_package.text
+        assert "## V93000 / SMT7" in result.context_package.text
+        assert pipeline.retrieve_scope.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ask_returns_clarification_without_flat_context(self) -> None:
+        handler, pipeline = self._make_coordinated_handler(include_smt8=True)
+
+        result = await handler.handle_ask({"question": "V93000 site control 怎么用？"})
+
+        assert result.answer_contract.answer_mode == "clarification"
+        assert "SMT7" in result.answer_contract.clarification_prompt
+        assert "SMT8" in result.answer_contract.clarification_prompt
+        assert result.context_package is None
+        pipeline.retrieve_scope.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handle_ask_low_confidence(self, handler: McpToolHandler) -> None:
         chunk = self._make_chunk(score=0.3)
-        handler.pipeline.search_enriched = AsyncMock(return_value=[(chunk, 0.3)])
+        handler.pipeline.retrieve_enriched = AsyncMock(return_value=[(chunk, 0.3)])
 
         result = await handler.handle_ask({"question": "vague?"})
 
         assert result.confidence == "low"
+
+    @pytest.mark.asyncio
+    async def test_handle_ask_returns_site_control_graph_sources_without_hints(
+        self, tmp_path: Path
+    ) -> None:
+        graph = {
+            "100118.md": {
+                "linked_source_mds": [],
+                "referenced_by_source_mds": ["100324.md"],
+                "canonical_source_md": "100118.md",
+                "content_hash": "100118",
+            },
+            "100324.md": {
+                "linked_source_mds": ["21615.md", "20264.md"],
+                "referenced_by_source_mds": [],
+                "canonical_source_md": "100324.md",
+                "content_hash": "100324",
+            },
+            "21615.md": {
+                "linked_source_mds": [],
+                "referenced_by_source_mds": [],
+                "canonical_source_md": "21615.md",
+                "content_hash": "21615",
+            },
+            "20264.md": {
+                "linked_source_mds": [],
+                "referenced_by_source_mds": [],
+                "canonical_source_md": "20264.md",
+                "content_hash": "20264",
+            },
+        }
+        graph_path = tmp_path / "document_graph.json"
+        graph_path.write_text(json.dumps(graph), encoding="utf-8")
+        chunks_by_source = {
+            "100324.md": [self._make_chunk("100324", source_md="100324.md")],
+            "21615.md": [self._make_chunk("21615", source_md="21615.md")],
+            "20264.md": [self._make_chunk("20264", source_md="20264.md")],
+        }
+        store = MagicMock()
+
+        def scroll(*, filters, limit):
+            chunks = chunks_by_source.get(filters["source_md"], [])
+            return chunks[:limit], None
+
+        store.scroll = scroll
+        pipeline = RetrievalPipeline.__new__(RetrievalPipeline)
+        pipeline.config = Config(
+            {"retrieval": {"planner": {"context_enrichment_enabled": False}}}
+        )
+        pipeline.vector_store = store
+        pipeline.hybrid = MagicMock()
+        pipeline.hybrid.retrieve.return_value = [
+            self._make_chunk("100118", source_md="100118.md")
+        ]
+        pipeline.hybrid._last_retrieval_stats = {
+            "dense_candidate_count": 1,
+            "sparse_candidate_count": 0,
+            "fused_candidate_count": 1,
+            "sparse_search_used": False,
+            "legacy_bm25_fallback_used": False,
+        }
+        pipeline.graph_expander = DocumentGraphExpander(graph_path=graph_path)
+        pipeline.reranker = MagicMock()
+        pipeline.reranker.top_k = 5
+        pipeline.reranker.broad_candidate_top_k = 16
+        pipeline.reranker.broad_final_top_k = 10
+        pipeline.reranker.broad_max_sources = 8
+        pipeline.reranker.rerank.side_effect = lambda _query, chunks, **kwargs: chunks
+        pipeline.expander = MagicMock()
+        pipeline.expander.expand.side_effect = lambda chunks, *_args, **_kwargs: chunks
+        pipeline.compressor = MagicMock()
+        pipeline.compressor.compress.side_effect = lambda chunks: chunks
+        pipeline._last_retrieval_stats = {}
+        handler = McpToolHandler(pipeline)
+
+        result = await handler.handle_ask({"question": "Site Control 有什么用？"})
+
+        assert {"100118.md", "100324.md", "21615.md", "20264.md"} <= set(
+            result.source_files
+        )
+        assert result.processing["graph_expanded_source_count"] == 3
+        assert result.answer_contract.answer_mode == "broad_concept"
+        assert result.answer_contract.completeness_required is True
+        assert "A short overview alone is insufficient." in result.answer
+        assert any(
+            "Do not return only a short overview" in rule
+            for rule in result.answer_contract.synthesis_rules
+        )
 
     @pytest.mark.asyncio
     async def test_handle_get_document(self, handler: McpToolHandler) -> None:
@@ -437,326 +546,23 @@ class TestMcpToolHandler:
         assert result.status == "degraded"
 
     # -----------------------------------------------------------------------
-    # IG-XL source hints (15Q evaluation follow-up)
+    # Ecosystem filtering
     # -----------------------------------------------------------------------
-
-    @pytest.mark.parametrize(
-        ("query", "expected_sources"),
-        [
-            (
-                "DSIO200 的 VSSS/VSSC 是什么",
-                (
-                    "igxl/patternlanguage/plinstruments.5.07.md",
-                    "igxl/dibdesign/dib_hsd200.16.5.md",
-                ),
-            ),
-            (
-                "IG-XL SECS/GEM spooling CONTROLSTATE",
-                ("igxl/secsgem/secs_scenario.11.51.md",),
-            ),
-            (
-                "IG-XL SECS/GEM spooling 在什么 CONTROLSTATE 下有意义",
-                ("igxl/secsgem/secs_scenario.11.51.md",),
-            ),
-            (
-                "Test Analysis Tool startup",
-                ("igxl/testanalysis/taUsing.1.2.md",),
-            ),
-            (
-                "Available J750 Features",
-                ("igxl/igxladmin/adLicensing.2.6.md",),
-            ),
-            (
-                "Available J750 Features 文档说明 J750 features 按哪些 instrument 或 feature 分类",
-                ("igxl/igxladmin/adLicensing.2.6.md",),
-            ),
-            (
-                "MTO Pattern Microcodes",
-                (
-                    "igxl/patternlanguage/plmto.7.03.md",
-                    "igxl/patterntool/PTVectorsEditing.4.21.md",
-                ),
-            ),
-            (
-                "Programming the MTO Resource Map",
-                ("igxl/mto800/mt800prog.3.04.md",),
-            ),
-            (
-                "MTO Resource Map Sheet programming restrictions",
-                (
-                    "igxl/datatool/DTSheets.11.185.md",
-                    "igxl/mto800/mt800prog.3.04.md",
-                ),
-            ),
-            (
-                "MTO800 中 Programming the MTO Resource Map 应该查看哪个文档",
-                ("igxl/mto800/mt800prog.3.04.md",),
-            ),
-            (
-                "DataTool 中 MTO Resource Map Sheet 的 programming restrictions 和 configuration limitations",
-                (
-                    "igxl/datatool/DTSheets.11.185.md",
-                    "igxl/mto800/mt800prog.3.04.md",
-                ),
-            ),
-            (
-                "Pattern Tool 中如果 pattern file 使用 MTO，Vectors worksheet 会有什么额外内容",
-                (
-                    "igxl/patterntool/PTVectorsEditing.4.21.md",
-                    "igxl/patternlanguage/plmto.7.03.md",
-                ),
-            ),
-        ],
-    )
-    def test_source_hints_for_igxl_weak_topics(
-        self, query: str, expected_sources: tuple[str, ...]
-    ) -> None:
-        handler = self._make_handler()
-        _, source_mds = handler._source_hints_for_query(query)
-        assert source_mds == expected_sources
-        assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
-
-    def test_source_hints_drop_igxl_when_disabled(self) -> None:
-        pipeline = AsyncMock()
-        pipeline.config = Config({"documents": {"igxl": {"enabled": False}}})
-        handler = McpToolHandler(pipeline)
-        _, source_mds = handler._source_hints_for_query("DSIO200 VSSS")
-        assert source_mds == ()
-
-    def test_source_hints_preserve_igxl_when_enabled(self) -> None:
-        handler = self._make_handler()
-        _, source_mds = handler._source_hints_for_query("DSIO200 VSSS")
-        assert "igxl/patternlanguage/plinstruments.5.07.md" in source_mds
-
-    def test_select_source_hint_chunk_prefers_term_match(self) -> None:
-        chunk1 = Chunk(
-            id="c1",
-            content="general intro",
-            chunk_type=ChunkType.PARAGRAPH,
-            doc_title="Intro",
-        )
-        chunk2 = Chunk(
-            id="c2",
-            content="VSSS and VSSC details",
-            chunk_type=ChunkType.PARAGRAPH,
-            doc_title="DSIO200",
-        )
-        result = McpToolHandler._select_source_hint_chunk(
-            "DSIO200 VSSS", [chunk1, chunk2], ("vsss", "vssc")
-        )
-        assert result is not None
-        assert result.id == "c2"
-
-    @pytest.mark.asyncio
-    async def test_handle_retrieve_adds_igxl_dsio200_source_hints(self) -> None:
-        handler = self._make_handler()
-        generic = self._make_chunk(
-            chunk_id="generic",
-            source_md="igxl/relnotesprev/ReadMe_V3.50.50.4.20.md",
-            doc_title="Release Notes",
-        )
-        vsss = self._make_chunk(
-            chunk_id="vsss",
-            source_md="igxl/patternlanguage/plinstruments.5.07.md",
-            doc_title="Pattern Language Instruments",
-            section_title="DSIO200 VSSS/VSSC",
-        )
-        vssc = self._make_chunk(
-            chunk_id="vssc",
-            source_md="igxl/dibdesign/dib_hsd200.16.5.md",
-            doc_title="DIB Design",
-            section_title="HSD200",
-        )
-        docs = {
-            "igxl/patternlanguage/plinstruments.5.07.md": [vsss],
-            "igxl/dibdesign/dib_hsd200.16.5.md": [vssc],
-        }
-        handler.pipeline.retrieve_enriched = AsyncMock(return_value=[(generic, 0.6)])
-        handler.pipeline.get_document = AsyncMock(
-            side_effect=lambda source_md: docs.get(source_md, [])
-        )
-
-        result = await handler.handle_retrieve({"query": "DSIO200 的 VSSS/VSSC 是什么"})
-
-        source_mds = [chunk.source_md for chunk in result.chunks]
-        assert source_mds[:2] == [
-            "igxl/patternlanguage/plinstruments.5.07.md",
-            "igxl/dibdesign/dib_hsd200.16.5.md",
-        ]
-        assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
-
-    @pytest.mark.asyncio
-    async def test_handle_ask_adds_igxl_secsgem_spooling_hint(self) -> None:
-        handler = self._make_handler()
-        generic = self._make_chunk(
-            chunk_id="generic",
-            source_md="igxl/datatool/dtribbon.03.10.md",
-            doc_title="DataTool Ribbon",
-        )
-        spooling = self._make_chunk(
-            chunk_id="spooling",
-            source_md="igxl/secsgem/secs_scenario.11.51.md",
-            doc_title="SECS Scenario",
-            section_title="Spooling CONTROLSTATE",
-        )
-        docs = {"igxl/secsgem/secs_scenario.11.51.md": [spooling]}
-        handler.pipeline.search_enriched = AsyncMock(return_value=[(generic, 0.6)])
-        handler.pipeline.get_document = AsyncMock(
-            side_effect=lambda source_md: docs.get(source_md, [])
-        )
-
-        result = await handler.handle_ask(
-            {"question": "IG-XL SECS/GEM spooling 在什么 CONTROLSTATE 下有意义"}
-        )
-
-        assert "igxl/secsgem/secs_scenario.11.51.md" in result.source_files
-        assert all(not src.startswith(("smt7/", "v93000/")) for src in result.source_files)
-        assert result.citations[0].source_md == "igxl/secsgem/secs_scenario.11.51.md"
-
-    @pytest.mark.asyncio
-    async def test_handle_ask_adds_mto_resource_map_hint(self) -> None:
-        handler = self._make_handler()
-        generic = self._make_chunk(
-            chunk_id="generic",
-            source_md="igxl/datatool/dtribbon.03.10.md",
-            doc_title="DataTool Ribbon",
-        )
-        resource_map = self._make_chunk(
-            chunk_id="resource_map",
-            source_md="igxl/mto800/mt800prog.3.04.md",
-            doc_title="MTO800 Programming",
-            section_title="Programming the MTO Resource Map",
-        )
-        docs = {"igxl/mto800/mt800prog.3.04.md": [resource_map]}
-        handler.pipeline.search_enriched = AsyncMock(return_value=[(generic, 0.6)])
-        handler.pipeline.get_document = AsyncMock(
-            side_effect=lambda source_md: docs.get(source_md, [])
-        )
-
-        result = await handler.handle_ask(
-            {"question": "MTO800 中 Programming the MTO Resource Map 应该查看哪个文档"}
-        )
-
-        assert "igxl/mto800/mt800prog.3.04.md" in result.source_files
-        assert all(not src.startswith(("smt7/", "v93000/")) for src in result.source_files)
-        assert result.citations[0].source_md == "igxl/mto800/mt800prog.3.04.md"
-
-    @pytest.mark.asyncio
-    async def test_handle_ask_adds_mto_datatool_restrictions_hint(self) -> None:
-        handler = self._make_handler()
-        generic = self._make_chunk(
-            chunk_id="generic",
-            source_md="igxl/datatool/dtribbon.03.10.md",
-            doc_title="DataTool Ribbon",
-        )
-        sheet = self._make_chunk(
-            chunk_id="sheet",
-            source_md="igxl/datatool/DTSheets.11.185.md",
-            doc_title="DataTool Sheets",
-            section_title="MTO Resource Map Sheet",
-        )
-        resource_map = self._make_chunk(
-            chunk_id="resource_map",
-            source_md="igxl/mto800/mt800prog.3.04.md",
-            doc_title="MTO800 Programming",
-            section_title="Programming the MTO Resource Map",
-        )
-        docs = {
-            "igxl/datatool/DTSheets.11.185.md": [sheet],
-            "igxl/mto800/mt800prog.3.04.md": [resource_map],
-        }
-        handler.pipeline.search_enriched = AsyncMock(return_value=[(generic, 0.6)])
-        handler.pipeline.get_document = AsyncMock(
-            side_effect=lambda source_md: docs.get(source_md, [])
-        )
-
-        result = await handler.handle_ask(
-            {
-                "question": "DataTool 中 MTO Resource Map Sheet 的 programming restrictions 和 configuration limitations"
-            }
-        )
-
-        source_mds = result.source_files
-        assert "igxl/datatool/DTSheets.11.185.md" in source_mds
-        assert "igxl/mto800/mt800prog.3.04.md" in source_mds
-        assert all(not src.startswith(("smt7/", "v93000/")) for src in source_mds)
-        assert all(
-            not src.split("/")[-1].split(".")[0].isdigit() for src in source_mds
-        )
-
-    # -----------------------------------------------------------------------
-    # IG-XL contamination filtering (Q8 follow-up)
-    # -----------------------------------------------------------------------
-
-    def test_is_igxl_query_detects_igxl_context(self) -> None:
-        assert McpToolHandler._is_igxl_query("IG-XL SECS/GEM spooling") is True
-        assert McpToolHandler._is_igxl_query("J750 license management") is True
-        assert McpToolHandler._is_igxl_query("Pattern Tool MTO vectors") is True
-        assert McpToolHandler._is_igxl_query("How does V93000 pattern tool work") is False
-        assert McpToolHandler._is_igxl_query("SMT7 array handling") is False
 
     def test_is_smt7_or_v93000_chunk_detects_numeric_and_prefix_docs(self) -> None:
         smt7_prefixed = self._make_chunk(source_md="smt7/pattern/119474.md")
+        v93000_smt7_prefixed = self._make_chunk(source_md="v93000/smt7/119474.md")
         v93000_prefixed = self._make_chunk(source_md="v93000/timing/levels.md")
         numeric_only = self._make_chunk(source_md="119474.md")
         numeric_variant = self._make_chunk(source_md="119474_2.md")
         igxl_doc = self._make_chunk(source_md="igxl/patterntool/PTVectorsEditing.4.21.md")
 
         assert McpToolHandler._is_smt7_or_v93000_chunk(smt7_prefixed) is True
+        assert McpToolHandler._is_smt7_or_v93000_chunk(v93000_smt7_prefixed) is True
         assert McpToolHandler._is_smt7_or_v93000_chunk(v93000_prefixed) is True
         assert McpToolHandler._is_smt7_or_v93000_chunk(numeric_only) is True
         assert McpToolHandler._is_smt7_or_v93000_chunk(numeric_variant) is True
         assert McpToolHandler._is_smt7_or_v93000_chunk(igxl_doc) is False
-
-    def test_filter_igxl_contamination_removes_smt7_for_igxl_queries(self) -> None:
-        igxl_chunk = self._make_chunk(source_md="igxl/patterntool/PTVectorsEditing.4.21.md")
-        smt7_chunk = self._make_chunk(source_md="119474.md")
-        v93000_chunk = self._make_chunk(source_md="v93000/timing/levels.md")
-        results = [(igxl_chunk, 0.9), (smt7_chunk, 0.85), (v93000_chunk, 0.8)]
-
-        filtered = McpToolHandler._filter_igxl_contamination(
-            "Pattern Tool 中如果 pattern file 使用 MTO", results
-        )
-
-        source_mds = [c.source_md for c, _ in filtered]
-        assert source_mds == ["igxl/patterntool/PTVectorsEditing.4.21.md"]
-
-    def test_filter_igxl_contamination_preserves_all_for_neutral_queries(self) -> None:
-        igxl_chunk = self._make_chunk(source_md="igxl/patterntool/PTVectorsEditing.4.21.md")
-        smt7_chunk = self._make_chunk(source_md="119474.md")
-        results = [(igxl_chunk, 0.9), (smt7_chunk, 0.85)]
-
-        filtered = McpToolHandler._filter_igxl_contamination(
-            "How does testing work in general", results
-        )
-
-        assert len(filtered) == 2
-
-    @pytest.mark.asyncio
-    async def test_handle_ask_filters_smt7_contamination_for_igxl_query(self) -> None:
-        handler = self._make_handler()
-        igxl_chunk = self._make_chunk(
-            chunk_id="igxl",
-            source_md="igxl/patterntool/PTVectorsEditing.4.21.md",
-            doc_title="Pattern Tool Vectors",
-        )
-        smt7_chunk = self._make_chunk(
-            chunk_id="smt7",
-            source_md="119474.md",
-            doc_title="Pattern Tool MTO",
-        )
-        handler.pipeline.search_enriched = AsyncMock(
-            return_value=[(igxl_chunk, 0.9), (smt7_chunk, 0.85)]
-        )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
-
-        result = await handler.handle_ask(
-            {"question": "Pattern Tool 中如果 pattern file 使用 MTO，Vectors worksheet 会有什么额外内容"}
-        )
-
-        assert all(not src.startswith(("smt7/", "v93000/")) for src in result.source_files)
-        assert "119474.md" not in result.source_files
-        assert "igxl/patterntool/PTVectorsEditing.4.21.md" in result.source_files
 
     # -----------------------------------------------------------------------
     # Planner-driven retrieval & bidirectional ecosystem filtering
@@ -781,18 +587,17 @@ class TestMcpToolHandler:
         )
         numeric_contam = self._make_chunk(
             chunk_id="smt7",
-            source_md="119474.md",
+            source_md="v93000/smt7/119474.md",
             doc_title="SMT7 Pattern",
             platform="SMT7",
         )
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[
                 (job_list_127, 0.95),
                 (job_list_128, 0.9),
                 (numeric_contam, 0.85),
             ]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask(
             {"question": "在 ig-xl 中 job list 有什么用"}
@@ -801,7 +606,7 @@ class TestMcpToolHandler:
         source_mds = result.source_files
         assert "igxl/datatool/DTSheets.11.127.md" in source_mds
         assert "igxl/datatool/DTSheets.11.128.md" in source_mds
-        assert "119474.md" not in source_mds
+        assert "v93000/smt7/119474.md" not in source_mds
 
     @pytest.mark.asyncio
     async def test_handle_ask_job_list_glossary(self) -> None:
@@ -812,10 +617,9 @@ class TestMcpToolHandler:
             doc_title="Job List Sheet",
             platform="J750",
         )
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(job_list, 0.95)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask({"question": "作业列表有什么用"})
 
@@ -834,11 +638,10 @@ class TestMcpToolHandler:
             doc_title="Job List Sheet",
             platform="J750",
         )
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(chunk, 0.9 - i * 0.1) for i, chunk in enumerate(primary)]
             + [(doc_context, 0.5)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask(
             {"question": "在 ig-xl 中 job list 有什么用", "top_k": 3}
@@ -862,10 +665,9 @@ class TestMcpToolHandler:
             doc_title="IG-XL Arrays",
             platform="J750",
         )
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(smt7_array, 0.9), (igxl_array, 0.85)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask({"question": "SMT7 ARRAY"})
 
@@ -878,7 +680,7 @@ class TestMcpToolHandler:
         handler = self._make_handler()
         tdc_doc = self._make_chunk(
             chunk_id="tdc",
-            source_md="119474.md",
+            source_md="v93000/smt7/119474.md",
             doc_title="TDC Flow Creator",
             platform="TDC",
         )
@@ -888,15 +690,14 @@ class TestMcpToolHandler:
             doc_title="DataTool Ribbon",
             platform="J750",
         )
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(tdc_doc, 0.9), (igxl_doc, 0.85)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask({"question": "TDC 中如何查看文档"})
 
         source_mds = result.source_files
-        assert "119474.md" in source_mds
+        assert "v93000/smt7/119474.md" in source_mds
         assert "igxl/datatool/dtribbon.03.10.md" not in source_mds
 
     @pytest.mark.asyncio
@@ -914,13 +715,50 @@ class TestMcpToolHandler:
             doc_title="Pattern Tool",
             platform="J750",
         )
-        handler.pipeline.search_enriched = AsyncMock(
+        handler.pipeline.retrieve_enriched = AsyncMock(
             return_value=[(v93000_doc, 0.9), (igxl_doc, 0.85)]
         )
-        handler.pipeline.get_document = AsyncMock(return_value=[])
 
         result = await handler.handle_ask({"question": "v93000 levels"})
 
         source_mds = result.source_files
         assert "v93000/timing/levels.md" in source_mds
         assert "igxl/patterntool/PTVectorsEditing.4.21.md" not in source_mds
+
+    @pytest.mark.asyncio
+    async def test_handle_ask_processing_shows_diversity_stages(self) -> None:
+        """MCP processing should distinguish graph, rerank, diversity, and final counts."""
+        handler = self._make_handler()
+        c1 = self._make_chunk(chunk_id="c1", source_md="a.md", score=0.95)
+        c2 = self._make_chunk(chunk_id="c2", source_md="b.md", score=0.85)
+        handler.pipeline.retrieve_enriched = AsyncMock(
+            return_value=[(c1, 0.95), (c2, 0.85)]
+        )
+        handler.pipeline._last_retrieval_stats = {
+            "dense_candidate_count": 10,
+            "sparse_candidate_count": 10,
+            "fused_candidate_count": 20,
+            "graph_expanded_source_count": 5,
+            "graph_expanded_chunk_count": 15,
+            "post_rerank_candidate_count": 16,
+            "post_rerank_source_count": 8,
+            "post_diversity_candidate_count": 10,
+            "post_diversity_source_count": 8,
+            "final_context_source_count": 7,
+            "final_context_token_estimate": 3200,
+            "reranked_candidate_count": 16,
+        }
+
+        result = await handler.handle_ask({"question": "test?"})
+
+        proc = result.processing
+        assert proc["graph_expanded_source_count"] == 5
+        assert proc["graph_expanded_chunk_count"] == 15
+        assert proc["post_rerank_candidate_count"] == 16
+        assert proc["post_rerank_source_count"] == 8
+        assert proc["post_diversity_candidate_count"] == 10
+        assert proc["post_diversity_source_count"] == 8
+        assert proc["final_context_source_count"] == 7
+        assert proc["final_context_token_estimate"] == 3200
+        # reranked_candidate_count should reflect rerank stage, not final count
+        assert proc["reranked_candidate_count"] == 16

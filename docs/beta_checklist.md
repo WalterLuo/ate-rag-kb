@@ -61,11 +61,11 @@ questions from the first recorded beta run. For each, verify:
 
 | # | Required coverage |
 |---|-------------------|
-| 1 | Cite `29504.md` / `120084.md` when available. Include `LIMIT(TM::COMPARE opl, DOUBLE low, TM::COMPARE oph, DOUBLE high)`, comparison operators such as `TM::GT` / `TM::GE` / `TM::LT` / `TM::LE` / `TM::NA`, and code-level usage. |
-| 2 | Cite ARRAY sources such as `130224.md` (`Array in MTL`) and `102025.md` (`APG program file syntax`). Do not pass if the answer has no citation. |
-| 3 | Cite Site Match / site control sources such as `21615.md`. Explain ON, OFF, AUTO, successive starts, simultaneous starts, and shared analog/digital module behavior. |
+| 1 | Cite `v93000/smt7/29504.md` / `v93000/smt7/120084.md` when available. Include `LIMIT(TM::COMPARE opl, DOUBLE low, TM::COMPARE oph, DOUBLE high)`, comparison operators such as `TM::GT` / `TM::GE` / `TM::LT` / `TM::LE` / `TM::NA`, and code-level usage. |
+| 2 | Cite ARRAY sources such as `v93000/smt7/130224.md` (`Array in MTL`) and `v93000/smt7/102025.md` (`APG program file syntax`). Do not pass if the answer has no citation. |
+| 3 | Cite Site Match / site control sources such as `v93000/smt7/21615.md`. Explain ON, OFF, AUTO, successive starts, simultaneous starts, and shared analog/digital module behavior. |
 | 4 | Explain the relationship between ports, pins, multi-port timing, and multi-clock-domain use. |
-| 5 | Cite timing-file sources such as `101980.md`. Cover device cycles, edges, waveforms, clocks, equation set, timing set, spec set, wavetable, and file forms such as `.tim`, `.wvt`, `.eqn`, `.ac_spec`. |
+| 5 | Cite timing-file sources such as `v93000/smt7/101980.md`. Cover device cycles, edges, waveforms, clocks, equation set, timing set, spec set, wavetable, and file forms such as `.tim`, `.wvt`, `.eqn`, `.ac_spec`. |
 | 6 | For large RDI documents, use `ate_kb.get_document` pagination instead of one full-document call. |
 | 7 | For large technology-file documents, use `ate_kb.get_document` pagination and cite the exact source document. |
 | 8 | Cover the main testflow flags and cite each major source or the testflow flag index document. |
@@ -100,9 +100,9 @@ Use these large-document checks:
 
 | Source | Topic | Required behavior |
 |--------|-------|-------------------|
-| `146692.md` | RDI_Configure file | Fetch with `limit` and continue by `offset` only as needed |
-| `13920.md` | Using the Timing Diagram Tool | Do not fetch the whole document in one call |
-| `49363_2.md` | Technology file for a device | Use pagination and cite exact sections |
+| `v93000/smt7/146692.md` | RDI_Configure file | Fetch with `limit` and continue by `offset` only as needed |
+| `v93000/smt7/13920.md` | Using the Timing Diagram Tool | Do not fetch the whole document in one call |
+| `v93000/smt7/49363_2.md` | Technology file for a device | Use pagination and cite exact sections |
 
 ---
 
@@ -135,7 +135,25 @@ Record any failures here:
 
 ---
 
-## G. Beta Pass Criteria
+## G. Broad-Concept Query Checks
+
+For questions that ask broad concepts (e.g. Q3 site control, Q8 test flow flags):
+
+- [ ] Graph-expanded sources are **not** completely pruned by the reranker
+- [ ] Source diversity is verified: `post_diversity_source_count >= 3`
+  in the MCP `processing` field
+- [ ] Automatic coverage assembly ran: `broad_context_assembled == true`
+- [ ] `coverage_topics` contains content-bearing subtopics, not only titles,
+  images, or functional-change notes
+- [ ] `answer_contract.completeness_required == true`; the final answer is not
+  only a summary
+- [ ] The final answer covers every applicable `answer_contract.coverage_topics`
+  item, or explicitly states why it is outside the answer scope
+- [ ] The answer does **not** rely on hardcoded source hints
+- [ ] Final context package source coverage is checked, not just graph reachability
+- [ ] MCP `processing` data and call latency are recorded for analysis
+
+## H. Beta Pass Criteria
 
 Beta is **approved** when all of the following are met:
 
@@ -146,6 +164,7 @@ Beta is **approved** when all of the following are met:
 - [ ] No serious hallucinations observed
 - [ ] MCP tool calls are stable (no repeated JSON-RPC errors)
 - [ ] `get_document` never returns an oversized payload
+- [ ] Broad-concept queries pass the source-diversity checks in Section G
 - [ ] Any failures are documented in the Failure Log above
 
 For the first recorded beta trial result, see

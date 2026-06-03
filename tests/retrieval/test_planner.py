@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from ate_rag_kb.domain.scopes import TERADYNE_J750_IGXL
 from ate_rag_kb.retrieval.planner import RetrievalPlanner
 from ate_rag_kb.utils.config import Config
 
@@ -38,6 +39,11 @@ class TestRetrievalPlanner:
     def test_detect_ecosystem_neutral(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("how does testing work in general")
         assert plan.ecosystem is None
+
+    def test_uses_resolved_scope_when_provided(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("多 site 串行处理怎么实现？", scope=TERADYNE_J750_IGXL)
+        assert plan.ecosystem == "igxl"
+        assert plan.doc_family == "igxl_help"
 
     def test_non_igxl_terms_override_igxl(self, planner: RetrievalPlanner) -> None:
         # "v93000" should win even if "pattern tool" is an IG-XL term
@@ -79,6 +85,13 @@ class TestRetrievalPlanner:
     def test_expand_glossary_array(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("数组的作用")
         assert "ARRAY" in plan.enhanced_query
+
+    def test_igxl_serial_site_loop_expands_api_terms(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("IG-XL 多 site 串行处理怎么实现？", scope=TERADYNE_J750_IGXL)
+        assert "SelectFirst" in plan.enhanced_query
+        assert "SelectNext" in plan.enhanced_query
+        assert "loopDone" in plan.enhanced_query
+        assert "FastSiteLoop" in plan.enhanced_query
 
     def test_no_expansion_for_unknown_query(self, planner: RetrievalPlanner) -> None:
         plan = planner.plan("random unrelated query")
@@ -139,6 +152,42 @@ class TestRetrievalPlanner:
         plan = planner.plan("tdc how to view documents")
         assert plan.ecosystem == "v93000"
         assert plan.doc_family == "tdc"
+
+    # -------------------------------------------------------------------
+    # Regression: weak terms must not force TDC doc_family
+    # -------------------------------------------------------------------
+
+    def test_site_control_query_not_forced_tdc(self, planner: RetrievalPlanner) -> None:
+        """Site Control contains 'test suite' which is a weak TDC term."""
+        plan = planner.plan("SmarTest 7 中 test suite 的 Site Control 都有什么用处？")
+        assert plan.doc_family != "tdc"
+        assert plan.ecosystem == "v93000"
+
+    def test_site_control_usage_question_is_broad(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("Site Control 有什么用？")
+
+        assert plan.is_broad_concept is True
+
+    def test_module_query_not_forced_tdc(self, planner: RetrievalPlanner) -> None:
+        """'module' alone must not trigger TDC doc_family filter."""
+        plan = planner.plan("how to configure a module")
+        assert plan.doc_family != "tdc"
+
+    def test_flow_creator_query_not_forced_tdc(self, planner: RetrievalPlanner) -> None:
+        """'flow creator' alone must not trigger TDC doc_family filter."""
+        plan = planner.plan("flow creator basics")
+        assert plan.doc_family != "tdc"
+
+    def test_tdc_viewer_query_still_detected(self, planner: RetrievalPlanner) -> None:
+        """Strong TDC terms must still correctly set doc_family."""
+        plan = planner.plan("tdc viewer 如何使用")
+        assert plan.doc_family == "tdc"
+        assert plan.ecosystem == "v93000"
+
+    def test_test_development_center_query_still_detected(self, planner: RetrievalPlanner) -> None:
+        plan = planner.plan("test development center overview")
+        assert plan.doc_family == "tdc"
+        assert plan.ecosystem == "v93000"
 
     # -------------------------------------------------------------------
     # Glossary ecosystem / doc_family backfill

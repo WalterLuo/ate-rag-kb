@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ate_rag_kb.domain.scopes import RetrievalScope
 from ate_rag_kb.retrieval.glossary import GlossaryEntry, expand_query, match_glossary
 from ate_rag_kb.utils.config import Config
 from ate_rag_kb.utils.scope import DocumentScope
@@ -99,6 +100,10 @@ _IGXL_DOC_FAMILY_TERMS: tuple[str, ...] = (
 _TDC_DOC_FAMILY_TERMS: tuple[str, ...] = (
     "tdc",
     "test development center",
+)
+
+# Weak TDC terms: may boost relevance but must NOT trigger exclusive TDC filtering.
+_TDC_BOOST_TERMS: tuple[str, ...] = (
     "device preparation",
     "test program creation",
     "flow creator",
@@ -138,6 +143,7 @@ class RetrievalPlan:
     title_match_terms: list[str]  # Proper nouns for title boosting
     is_igxl_query: bool
     is_v93000_smt7_query: bool
+    is_broad_concept: bool = False
     is_ambiguous: bool = False
     clarification_prompt: str | None = None
     is_blocked: bool = False
@@ -150,24 +156,22 @@ class RetrievalPlanner:
     def __init__(self, config: Config | None = None) -> None:
         self.config = config or Config({})
         self.scope = DocumentScope(self.config)
-        self._title_boost_factor = self.config.get(
-            "retrieval.planner.title_boost_factor", 0.15
-        )
-        self._glossary_enabled = self.config.get(
-            "retrieval.planner.glossary_enabled", True
-        )
-        self._auto_filter_enabled = self.config.get(
-            "retrieval.planner.auto_filter_enabled", True
-        )
+        self._title_boost_factor = self.config.get("retrieval.planner.title_boost_factor", 0.15)
+        self._glossary_enabled = self.config.get("retrieval.planner.glossary_enabled", True)
+        self._auto_filter_enabled = self.config.get("retrieval.planner.auto_filter_enabled", True)
 
-    def plan(self, query: str) -> RetrievalPlan:
+    def plan(self, query: str, scope: RetrievalScope | None = None) -> RetrievalPlan:
         """Analyze *query* and return a ``RetrievalPlan``."""
-        ecosystem = self._detect_ecosystem(query)
+        ecosystem = self._ecosystem_from_scope(scope) or self._detect_ecosystem(query)
         doc_family = self._detect_doc_family(query, ecosystem)
+        if scope is not None and scope.software == "igxl" and doc_family is None:
+            doc_family = "igxl_help"
 
         if self._glossary_enabled:
             matched_glossary = self._compatible_glossary_entries(
-                match_glossary(query), ecosystem
+                match_glossary(query),
+                ecosystem,
+                scope,
             )
             enhanced_query = expand_query(query, matched_glossary)
         else:
@@ -189,10 +193,14 @@ class RetrievalPlanner:
             # ecosystem, or if the glossary value is compatible.
             if ecosystem is None and glossary_ecosystem is not None:
                 ecosystem = glossary_ecosystem
-            if doc_family is None and glossary_doc_family is not None and (
-                ecosystem is None
-                or glossary_ecosystem is None
-                or ecosystem == glossary_ecosystem
+            if (
+                doc_family is None
+                and glossary_doc_family is not None
+                and (
+                    ecosystem is None
+                    or glossary_ecosystem is None
+                    or ecosystem == glossary_ecosystem
+                )
             ):
                 doc_family = glossary_doc_family
 
@@ -215,12 +223,16 @@ class RetrievalPlanner:
         clarification_prompt = None
         enabled_versions = self.scope.enabledSoftwareVersions("v93000")
         if (
-            ecosystem == "v93000"
+            scope is None
+            and ecosystem == "v93000"
             and len(enabled_versions) > 1
             and self.scope.shouldAskWhenMultiple()
         ):
             normalized = query.lower()
-            has_version_specific = any(term in normalized for term in ("smt7", "smartest 7", "7.x", "smt8", "smartest 8", "8.x"))
+            has_version_specific = any(
+                term in normalized
+                for term in ("smt7", "smartest 7", "7.x", "smt8", "smartest 8", "8.x")
+            )
             has_vague_version = any(term in normalized for term in ("smartest", "smt", "version"))
             if has_vague_version and not has_version_specific:
                 is_ambiguous = True
@@ -228,6 +240,8 @@ class RetrievalPlanner:
                     "Your query mentions SmarTest but does not specify the software version. "
                     "Please clarify whether you are asking about SMT7 or SMT8."
                 )
+
+        is_broad_concept = self._detect_broad_concept(query)
 
         return RetrievalPlan(
             original_query=query,
@@ -238,6 +252,7 @@ class RetrievalPlanner:
             title_match_terms=title_match_terms,
             is_igxl_query=ecosystem == "igxl",
             is_v93000_smt7_query=ecosystem == "v93000",
+            is_broad_concept=is_broad_concept,
             is_ambiguous=is_ambiguous,
             clarification_prompt=clarification_prompt,
             is_blocked=is_blocked,
@@ -245,8 +260,20 @@ class RetrievalPlanner:
         )
 
     @staticmethod
+    def _ecosystem_from_scope(scope: RetrievalScope | None) -> str | None:
+        if scope is None:
+            return None
+        if scope.software == "igxl":
+            return "igxl"
+        if scope.platform == "v93000":
+            return "v93000"
+        return None
+
+    @staticmethod
     def _compatible_glossary_entries(
-        entries: list[GlossaryEntry], explicit_ecosystem: str | None
+        entries: list[GlossaryEntry],
+        explicit_ecosystem: str | None,
+        scope: RetrievalScope | None = None,
     ) -> list[GlossaryEntry]:
         """Drop glossary expansions that conflict with an explicit ecosystem.
 
@@ -254,13 +281,25 @@ class RetrievalPlanner:
         tied to IG-XL or V93000 only apply when the query did not already name
         the other ecosystem.
         """
-        if explicit_ecosystem is None:
-            return entries
-        return [
-            entry
-            for entry in entries
-            if entry.ecosystem is None or entry.ecosystem == explicit_ecosystem
-        ]
+        compatible: list[GlossaryEntry] = []
+        for entry in entries:
+            if scope is not None and entry.software and entry.software != scope.software:
+                continue
+            if scope is None and entry.software and explicit_ecosystem is not None:
+                if RetrievalPlanner._ecosystem_from_software(entry.software) != explicit_ecosystem:
+                    continue
+            if explicit_ecosystem is not None and entry.ecosystem not in (None, explicit_ecosystem):
+                continue
+            compatible.append(entry)
+        return compatible
+
+    @staticmethod
+    def _ecosystem_from_software(software: str) -> str | None:
+        if software == "igxl":
+            return "igxl"
+        if software in {"smt7", "smt8"}:
+            return "v93000"
+        return None
 
     # -----------------------------------------------------------------------
     # Ecosystem detection
@@ -317,13 +356,41 @@ class RetrievalPlanner:
         return None
 
     # -----------------------------------------------------------------------
+    # Broad concept detection
+    # -----------------------------------------------------------------------
+
+    _BROAD_CONCEPT_TERMS: tuple[str, ...] = (
+        "what is",
+        "how does",
+        "overview",
+        "introduction",
+        "都有什么",
+        "是什么",
+        "有什么用",
+        "作用",
+        "用途",
+        "做什么",
+        "介绍一下",
+        "概述",
+        "explain",
+        "describe",
+    )
+
+    @staticmethod
+    def _detect_broad_concept(query: str) -> bool:
+        """Return True when the query asks for a broad conceptual answer."""
+        normalized = query.lower()
+        # Long queries (>>30 chars) with broad terms are likely broad concept
+        has_broad_term = any(term in normalized for term in RetrievalPlanner._BROAD_CONCEPT_TERMS)
+        is_long = len(query) > 30
+        return has_broad_term or is_long
+
+    # -----------------------------------------------------------------------
     # Title match term extraction
     # -----------------------------------------------------------------------
 
     @staticmethod
-    def _extract_title_match_terms(
-        query: str, matched_glossary: list[GlossaryEntry]
-    ) -> list[str]:
+    def _extract_title_match_terms(query: str, matched_glossary: list[GlossaryEntry]) -> list[str]:
         """Extract proper nouns (sheet names, commands, APIs) for title matching.
 
         Returns a list of lower-cased terms that should be searched in
@@ -338,9 +405,7 @@ class RetrievalPlanner:
 
         # Extract capitalized phrases (e.g., "Job List Sheet", "MTO Resource Map")
         # Match sequences of capitalized words
-        capitalized_phrases = re.findall(
-            r"[A-Z][a-zA-Z0-9_]*(?:\s+[A-Z][a-zA-Z0-9_]*)+", query
-        )
+        capitalized_phrases = re.findall(r"[A-Z][a-zA-Z0-9_]*(?:\s+[A-Z][a-zA-Z0-9_]*)+", query)
         terms.extend(capitalized_phrases)
 
         # Extract quoted phrases

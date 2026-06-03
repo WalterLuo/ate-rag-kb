@@ -18,6 +18,7 @@ class GlossaryEntry:
     expansions: tuple[str, ...]  # Terms to inject into the query
     doc_family: str | None = None  # Optional doc family hint
     ecosystem: str | None = None  # Optional ecosystem hint
+    software: str | None = None  # Optional canonical software hint
 
 
 ATE_GLOSSARY: tuple[GlossaryEntry, ...] = (
@@ -27,6 +28,14 @@ ATE_GLOSSARY: tuple[GlossaryEntry, ...] = (
         expansions=("Job List Sheet", "DataTool Job List"),
         doc_family="igxl_help",
         ecosystem="igxl",
+    ),
+    GlossaryEntry(
+        cn_terms=("多 site 串行处理", "多site串行处理", "串行 site"),
+        en_terms=("serial site loop",),
+        expansions=("SelectFirst", "SelectNext", "LoopStatus", "loopDone", "FastSiteLoop"),
+        doc_family="igxl_help",
+        ecosystem="igxl",
+        software="igxl",
     ),
     GlossaryEntry(
         cn_terms=("数组",),

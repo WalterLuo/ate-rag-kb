@@ -9,16 +9,18 @@ from typing import Any
 
 # Prevent httpx from routing localhost traffic through a system proxy.
 _no_proxy = os.environ.get("NO_PROXY", "")
-os.environ["NO_PROXY"] = ",".join(
-    filter(None, [*_no_proxy.split(","), "localhost", "127.0.0.1"])
-)
+os.environ["NO_PROXY"] = ",".join(filter(None, [*_no_proxy.split(","), "localhost", "127.0.0.1"]))
 
 from qdrant_client import QdrantClient  # noqa: E402
-from qdrant_client.models import PointStruct  # noqa: E402
+from qdrant_client.models import PointStruct, SparseVector  # noqa: E402
 
 from ate_rag_kb.chunking.models import Chunk  # noqa: E402
+from ate_rag_kb.embedding.sparse_encoder import SparseVectorEncoder  # noqa: E402
 from ate_rag_kb.utils.config import Config  # noqa: E402
-from ate_rag_kb.vector_store.schema import build_filter, ensure_collection  # noqa: E402
+from ate_rag_kb.vector_store.schema import (  # noqa: E402
+    build_filter,
+    ensure_collection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +28,18 @@ logger = logging.getLogger(__name__)
 class QdrantVectorStore:
     """Local-first Qdrant vector store for ATE KB chunks."""
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(
+        self,
+        config: Config | None = None,
+        *,
+        allow_incompatible_schema: bool = False,
+    ) -> None:
         cfg = config or Config({})
         self.config = cfg
         self.collection_name: str = cfg.get("vector_store.collection_name", "ate_kb")
         self.upsert_batch_size: int = cfg.get("vector_store.upsert_batch_size", 128)
+        self.enable_sparse_vectors: bool = cfg.get("schema.enable_sparse_vectors", True)
+        self.schema_compatible = True
         self.local_path: Path = Path(cfg.get("vector_store.local_path", "./data/qdrant_storage"))
         mode: str | None = cfg.get("vector_store.mode")
         url: str | None = cfg.get("vector_store.url")
@@ -53,7 +62,32 @@ class QdrantVectorStore:
         else:
             raise ValueError(f"Invalid vector_store.mode: {mode}. Use 'server' or 'local'.")
 
-        ensure_collection(self.client, cfg)
+        try:
+            ensure_collection(self.client, cfg)
+        except RuntimeError as exc:
+            if not allow_incompatible_schema:
+                raise
+            self.schema_compatible = False
+            logger.warning(
+                "Loaded incompatible collection '%s' for rebuild only: %s",
+                self.collection_name,
+                exc,
+            )
+
+        vocab_path = Path(cfg.get("data.processed_dir", "./data/processed")) / "sparse_vocab.json"
+        if not self.enable_sparse_vectors:
+            self.sparse_encoder = SparseVectorEncoder()
+            self.sparse_encoder.vocab_path = vocab_path
+            return
+        try:
+            self.sparse_encoder = SparseVectorEncoder(vocab_path=vocab_path)
+        except RuntimeError as exc:
+            if not allow_incompatible_schema:
+                raise
+            self.schema_compatible = False
+            logger.warning("Loaded incompatible sparse vocabulary for rebuild only: %s", exc)
+            self.sparse_encoder = SparseVectorEncoder()
+            self.sparse_encoder.vocab_path = vocab_path
 
     def clear_collection(self) -> None:
         """Delete and recreate the collection to clear all points and indexes."""
@@ -61,25 +95,40 @@ class QdrantVectorStore:
             self.client.delete_collection(collection_name=self.collection_name)
             logger.info("Deleted collection '%s'.", self.collection_name)
         except Exception:
-            logger.warning("Collection '%s' did not exist; nothing to delete.", self.collection_name)
+            logger.warning(
+                "Collection '%s' did not exist; nothing to delete.", self.collection_name
+            )
 
         ensure_collection(self.client, self.config)
+        self.schema_compatible = True
         logger.info("Recreated collection '%s' with schema.", self.collection_name)
 
     def upsert_chunks(self, chunks: list[Chunk]) -> None:
-        """Batch upsert chunks with embeddings into Qdrant."""
+        """Batch upsert chunks with dense + sparse vectors into Qdrant."""
         if not chunks:
             return
+        if self.enable_sparse_vectors and not self.sparse_encoder.is_fitted():
+            raise RuntimeError(
+                "Cannot upsert sparse vectors before the sparse vocabulary is fitted. "
+                "Run a full ingestion rebuild first."
+            )
 
         points: list[PointStruct] = []
         for chunk in chunks:
             if chunk.embedding is None:
                 logger.warning("Chunk %s has no embedding; skipping.", chunk.id)
                 continue
+            vectors: dict[str, Any] = {"dense": chunk.embedding}
+            if self.enable_sparse_vectors:
+                sparse_indices, sparse_values = self.sparse_encoder.encode(chunk.content)
+                vectors["sparse"] = SparseVector(
+                    indices=sparse_indices,
+                    values=sparse_values,
+                )
             points.append(
                 PointStruct(
                     id=chunk.id,
-                    vector=chunk.embedding,
+                    vector=vectors,
                     payload={
                         **chunk.to_payload(),
                         "content": chunk.content,
@@ -98,11 +147,39 @@ class QdrantVectorStore:
         top_k: int = 10,
         filters: dict[str, Any] | None = None,
     ) -> list[Chunk]:
-        """Vector search returning Chunk objects."""
+        """Dense vector search returning Chunk objects."""
         qdrant_filter = build_filter(filters) if filters else None
         response = self.client.query_points(
             collection_name=self.collection_name,
             query=query_vector,
+            using="dense",
+            limit=top_k,
+            query_filter=qdrant_filter,
+            with_payload=True,
+        )
+        return [
+            Chunk.from_payload(r.id, {**(r.payload or {}), "score": r.score})
+            for r in response.points
+        ]
+
+    def sparse_search(
+        self,
+        query_text: str,
+        top_k: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> list[Chunk]:
+        """Sparse vector search returning Chunk objects."""
+        if not self.enable_sparse_vectors:
+            return []
+        indices, values = self.sparse_encoder.encode(query_text)
+        if not indices:
+            logger.debug("Empty sparse query for '%s'; skipping sparse search.", query_text)
+            return []
+        qdrant_filter = build_filter(filters) if filters else None
+        response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=SparseVector(indices=indices, values=values),
+            using="sparse",
             limit=top_k,
             query_filter=qdrant_filter,
             with_payload=True,
@@ -127,10 +204,7 @@ class QdrantVectorStore:
             scroll_filter=qdrant_filter,
             with_payload=True,
         )
-        chunks = [
-            Chunk.from_payload(r.id, r.payload or {})
-            for r in results
-        ]
+        chunks = [Chunk.from_payload(r.id, r.payload or {}) for r in results]
         return chunks, next_offset
 
     def delete_by_source(self, source_md: str) -> None:
@@ -164,9 +238,7 @@ class QdrantVectorStore:
             with_payload=True,
         )
         id_to_chunk = {
-            r.id: Chunk.from_payload(r.id, r.payload or {})
-            for r in results
-            if r.payload
+            r.id: Chunk.from_payload(r.id, r.payload or {}) for r in results if r.payload
         }
         return [id_to_chunk.get(cid) for cid in chunk_ids]
 

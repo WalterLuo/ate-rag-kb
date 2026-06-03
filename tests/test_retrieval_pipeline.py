@@ -19,12 +19,17 @@ class TestRetrievalPipeline:
             patch("ate_rag_kb.retrieval.pipeline.EmbeddingEncoder"),
             patch("ate_rag_kb.retrieval.pipeline.QdrantVectorStore") as mock_vs,
             patch("ate_rag_kb.retrieval.pipeline.HybridRetriever"),
-            patch("ate_rag_kb.retrieval.pipeline.Reranker"),
+            patch("ate_rag_kb.retrieval.pipeline.Reranker") as mock_reranker,
             patch("ate_rag_kb.retrieval.pipeline.ParentChildExpander"),
             patch("ate_rag_kb.retrieval.pipeline.ContextCompressor"),
         ):
             p = RetrievalPipeline(cfg)
             p.vector_store = mock_vs.return_value
+            p.reranker = mock_reranker.return_value
+            p.reranker.top_k = 5
+            p.reranker.broad_candidate_top_k = 16
+            p.reranker.broad_final_top_k = 10
+            p.reranker.broad_max_sources = 8
             yield p
 
     @pytest.mark.asyncio

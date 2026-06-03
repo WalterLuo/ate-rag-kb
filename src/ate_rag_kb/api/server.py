@@ -7,7 +7,8 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ate_rag_kb.api.routes import router, set_planner, set_retriever
+from ate_rag_kb.api.routes import router, set_coordinator, set_planner, set_retriever
+from ate_rag_kb.retrieval.coordinator import build_retrieval_coordinator
 from ate_rag_kb.retrieval.planner import RetrievalPlanner
 from ate_rag_kb.utils.config import Config
 
@@ -48,6 +49,7 @@ def create_app(config: Config) -> FastAPI:
         if retriever is not None:
             set_retriever(retriever)
             set_planner(RetrievalPlanner(config))
+            set_coordinator(build_retrieval_coordinator(config, retriever))
             logger.info("Retriever backend initialized")
 
     return app

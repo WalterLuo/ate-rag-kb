@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ate_rag_kb.domain.scopes import RetrievalScope, configured_scopes
 from ate_rag_kb.utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,23 @@ class DocumentScope:
     def shouldAskWhenMultiple(self) -> bool:
         """Return True when ambiguity policy is 'ask_when_multiple'."""
         return self.ambiguityPolicy() == "ask_when_multiple"
+
+    def should_ingest_scope(self, path: Path, scope: RetrievalScope | None) -> bool:
+        """Return False if a canonical document scope is unavailable or disabled."""
+        if scope is None:
+            logger.debug("Skipping %s: no canonical document scope", path)
+            return False
+        if self.config.get("documents.enabled_scopes", None) is not None:
+            enabled = configured_scopes(self.config)
+            return any(
+                candidate.matches_document(scope.vendor, scope.platform, scope.software)
+                for candidate in enabled
+            )
+        ecosystem = (
+            "igxl" if scope.software == "igxl" else "v93000" if scope.platform == "v93000" else ""
+        )
+        software_version = scope.software if ecosystem == "v93000" else ""
+        return self.shouldIngest(path, ecosystem, software_version)
 
     def shouldIngest(self, path: Path, ecosystem: str, softwareVersion: str) -> bool:
         """Return False if document is outside enabled scope."""

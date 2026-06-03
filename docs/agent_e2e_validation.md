@@ -219,9 +219,9 @@ from beta testing:
 
 | Source | Topic | Expected behavior |
 |--------|-------|-------------------|
-| `146692.md` | RDI_Configure file | Use `limit` and continue with `offset=next_offset` only as needed |
-| `13920.md` | Using the Timing Diagram Tool | Do not fetch the whole document in one call |
-| `49363_2.md` | Technology file for a device | Cite exact sections after paginated reads |
+| `v93000/smt7/146692.md` | RDI_Configure file | Use `limit` and continue with `offset=next_offset` only as needed |
+| `v93000/smt7/13920.md` | Using the Timing Diagram Tool | Do not fetch the whole document in one call |
+| `v93000/smt7/49363_2.md` | Technology file for a device | Cite exact sections after paginated reads |
 
 ---
 
@@ -240,6 +240,41 @@ Expected results:
 - If nearest results are returned, they are presented as "possibly related" with
   low-confidence noted
 
+### Step 7 — Broad Concept Validation
+
+Prompt:
+
+```text
+SMT7中site control的作用是什么
+```
+
+Expected results:
+
+- Agent calls `ate_kb.ask` or `ate_kb.retrieve`
+- The answer naturally covers the following aspects:
+  - Site Control window purpose
+  - available / enabled / active / focus states
+  - PARALLEL / SERIAL / SEMIPARALLEL modes
+  - Size / Cycle
+  - Allow parallel
+  - Site Match Mode
+- Citations include multiple distinct `source_md` files
+- The `processing` field shows `post_diversity_source_count >= 3`
+- The MCP response shows `answer_contract.answer_mode == "broad_concept"` and
+  `answer_contract.completeness_required == true`
+- The final answer covers each applicable `answer_contract.coverage_topics`
+  item instead of stopping at a short overview
+
+> **Note:** During acceptance testing, the following sources may be checked
+> manually for completeness, but they must **not** be hardcoded as runtime
+> source hints or fixed recall rules:
+> - `v93000/smt7/42588.md`
+> - `v93000/smt7/100096.md`
+> - `v93000/smt7/100119.md`
+> - `v93000/smt7/100324.md`
+> - `v93000/smt7/20264.md`
+> - `v93000/smt7/21615.md`
+
 ---
 
 ## 6. Pass Criteria
@@ -256,6 +291,7 @@ Beta is considered **ready** when **all** of the following are true:
 | 6 | No hallucination on out-of-domain or low-confidence queries |
 | 7 | No JSON-RPC parse errors in MCP stdout |
 | 8 | The 10-question beta checklist passes with citations for every answer |
+| 9 | The broad concept validation (Step 7) covers all required aspects with citations from multiple sources |
 
 The first recorded beta trial is summarized in
 [Beta 10-Question Trial Report](archive/beta_test_report_10q.md). Use that report as

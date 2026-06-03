@@ -10,17 +10,21 @@ data:
   toc_tree: "./data/raw/toc_tree.json"
   href_map: "./data/raw/href_map.json"
 
+# Increment when ingestion schema or persisted sparse-vector semantics change.
+ingestion:
+  schema_version: 6
+
 # Embedding model configuration
 embedding:
   model_name: "BAAI/bge-m3"
-  device: "auto"
-  ingest_device: "auto"
+  device: "${ATE_KB_QUERY_DEVICE:-cpu}"
+  ingest_device: "${ATE_KB_INGEST_DEVICE:-auto}"
   normalize_embeddings: true
   batch_size: 8
   max_seq_length: 512
   cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
   # false: allow first-time model download; true: require a prepared local cache.
-  local_files_only: false
+  local_files_only: true
   query_instruction: "Represent this sentence for searching relevant passages: "
 
 # Vector store configuration
@@ -44,6 +48,13 @@ vector_store:
 
 # Document scope and software version configuration
 documents:
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
   enabled_ecosystems:
     - "v93000"
   v93000:
@@ -53,14 +64,21 @@ documents:
     default_software_version: "ask"
     ambiguity_policy: "ask_when_multiple"
   igxl:
-    enabled: false
+    enabled: true
 
 # Collection schema
 schema:
   vector_size: 1024
   distance: "Cosine"
+  enable_sparse_vectors: true
   payload_indexes:
+    - field: "vendor"
+      type: "keyword"
     - field: "platform"
+      type: "keyword"
+    - field: "software"
+      type: "keyword"
+    - field: "software_release"
       type: "keyword"
     - field: "doc_type"
       type: "keyword"
@@ -108,6 +126,9 @@ chunking:
 retrieval:
   vector_search:
     top_k: 20
+  sparse_search:
+    enabled: true
+    top_k: 20
   bm25_search:
     enabled: true
     top_k: 20
@@ -115,14 +136,32 @@ retrieval:
     b: 0.75
   hybrid:
     enabled: true
-    vector_weight: 0.7
-    bm25_weight: 0.3
+    dense_weight: 0.7
+    sparse_weight: 0.3
     final_top_k: 10
+    legacy_bm25_fallback: true
   reranker:
     enabled: true
     model_name: "BAAI/bge-reranker-v2-m3"
     top_k: 5
-    batch_size: 16
+    batch_size: 4
+    device: "${ATE_KB_RERANKER_DEVICE:-cpu}"
+    # Broad-concept query overrides
+    broad_candidate_top_k: 40
+    broad_final_top_k: 14
+    broad_max_sources: 8
+    broad_min_sources: 3
+    broad_max_chunks_per_source: 3
+  broad_context:
+    enabled: true
+    seed_sources: 4
+    max_sources: 32
+    max_hops: 2
+    max_chunks: 16
+    max_chunks_per_source: 3
+    max_tokens: 9000
+    document_max_chars: 9000
+    sections_per_source: 2
   parent_child:
     enabled: true
     include_parent: true

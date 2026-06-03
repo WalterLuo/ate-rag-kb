@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
+from ate_rag_kb.embedding.sparse_encoder import SparseVectorEncoder
 from ate_rag_kb.utils.config import Config
 from ate_rag_kb.vector_store.qdrant_client import QdrantVectorStore
+from ate_rag_kb.vector_store.schema import create_collection
 
 
 class TestQdrantVectorStore:
@@ -21,7 +27,9 @@ class TestQdrantVectorStore:
         with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls:
             qdrant_cls.return_value = mock_client
             with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
-                yield QdrantVectorStore()
+                store = QdrantVectorStore()
+                store.sparse_encoder.fit(["text large payload"])
+                yield store
 
     def test_upsert_chunks_skips_missing_embeddings(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
         chunks = [
@@ -43,6 +51,7 @@ class TestQdrantVectorStore:
             qdrant_cls.return_value = mock_client
             with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection"):
                 store = QdrantVectorStore(Config({"vector_store": {"upsert_batch_size": 2}}))
+                store.sparse_encoder.fit(["large payload"])
         chunks = [
             Chunk(
                 id=f"c{i}",
@@ -265,3 +274,135 @@ class TestQdrantVectorStore:
 
         mock_client.delete_collection.assert_called_once_with(collection_name=store.collection_name)
         mock_ensure.assert_called_once()
+
+    def test_dense_only_collection_does_not_receive_sparse_vectors(self) -> None:
+        client = QdrantClient(":memory:")
+        create_collection(client, "dense_only", vector_size=2, enable_sparse=False)
+        store = QdrantVectorStore.__new__(QdrantVectorStore)
+        store.client = client
+        store.collection_name = "dense_only"
+        store.upsert_batch_size = 10
+        store.enable_sparse_vectors = False
+        store.sparse_encoder = SparseVectorEncoder()
+        chunk = Chunk(
+            id=str(uuid4()),
+            content="dense only",
+            chunk_type=ChunkType.PARAGRAPH,
+            embedding=[0.1, 0.2],
+        )
+
+        store.upsert_chunks([chunk])
+
+        assert store.count() == 1
+
+    def test_dense_only_store_ignores_legacy_sparse_vocab(self, tmp_path: Path) -> None:
+        local_path = tmp_path / "qdrant"
+        client = QdrantClient(path=str(local_path))
+        create_collection(client, "dense_only", vector_size=2, enable_sparse=False)
+        client.close()
+        processed_dir = tmp_path / "processed"
+        processed_dir.mkdir()
+        (processed_dir / "sparse_vocab.json").write_text('{"site": 0}')
+        cfg = Config(
+            {
+                "vector_store": {
+                    "mode": "local",
+                    "local_path": str(local_path),
+                    "collection_name": "dense_only",
+                },
+                "schema": {
+                    "vector_size": 2,
+                    "enable_sparse_vectors": False,
+                    "payload_indexes": [],
+                },
+                "data": {"processed_dir": str(processed_dir)},
+            }
+        )
+
+        store = QdrantVectorStore(cfg)
+
+        assert store.schema_compatible is True
+        store.client.close()
+
+    def test_sparse_collection_requires_fitted_encoder_before_upsert(self) -> None:
+        client = QdrantClient(":memory:")
+        create_collection(client, "sparse", vector_size=2, enable_sparse=True)
+        store = QdrantVectorStore.__new__(QdrantVectorStore)
+        store.client = client
+        store.collection_name = "sparse"
+        store.upsert_batch_size = 10
+        store.enable_sparse_vectors = True
+        store.sparse_encoder = SparseVectorEncoder()
+        chunk = Chunk(
+            id=str(uuid4()),
+            content="site control",
+            chunk_type=ChunkType.PARAGRAPH,
+            embedding=[0.1, 0.2],
+        )
+
+        with pytest.raises(RuntimeError, match="sparse vocabulary"):
+            store.upsert_chunks([chunk])
+
+    def test_rebuild_mode_allows_loading_incompatible_collection(
+        self, tmp_path: Path
+    ) -> None:
+        local_path = tmp_path / "qdrant"
+        client = QdrantClient(path=str(local_path))
+        client.create_collection(
+            "old",
+            vectors_config=VectorParams(size=2, distance=Distance.COSINE),
+        )
+        client.close()
+        cfg = Config(
+            {
+                "vector_store": {
+                    "mode": "local",
+                    "local_path": str(local_path),
+                    "collection_name": "old",
+                },
+                "schema": {
+                    "vector_size": 2,
+                    "enable_sparse_vectors": True,
+                    "payload_indexes": [],
+                },
+                "data": {"processed_dir": str(tmp_path / "processed")},
+            }
+        )
+
+        store = QdrantVectorStore(cfg, allow_incompatible_schema=True)
+
+        assert store.schema_compatible is False
+        store.clear_collection()
+        assert store.schema_compatible is True
+        store.client.close()
+
+    def test_rebuild_mode_marks_legacy_sparse_vocab_incompatible(
+        self, tmp_path: Path
+    ) -> None:
+        local_path = tmp_path / "qdrant"
+        client = QdrantClient(path=str(local_path))
+        create_collection(client, "old", vector_size=2, enable_sparse=True)
+        client.close()
+        processed_dir = tmp_path / "processed"
+        processed_dir.mkdir()
+        (processed_dir / "sparse_vocab.json").write_text('{"site": 0}')
+        cfg = Config(
+            {
+                "vector_store": {
+                    "mode": "local",
+                    "local_path": str(local_path),
+                    "collection_name": "old",
+                },
+                "schema": {
+                    "vector_size": 2,
+                    "enable_sparse_vectors": True,
+                    "payload_indexes": [],
+                },
+                "data": {"processed_dir": str(processed_dir)},
+            }
+        )
+
+        store = QdrantVectorStore(cfg, allow_incompatible_schema=True)
+
+        assert store.schema_compatible is False
+        store.client.close()

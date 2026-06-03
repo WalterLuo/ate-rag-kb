@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ate_rag_kb.domain.scopes import ADVANTEST_V93000_SMT7, TERADYNE_J750_IGXL
 from ate_rag_kb.ingestion.pipeline import IngestionPipeline
 from ate_rag_kb.utils.config import Config
 
@@ -17,10 +18,10 @@ class TestDetectPlatform:
         assert IngestionPipeline._detect_platform(Path("ultraflex_ref.md")) == "J750"
 
     def test_detects_smt7(self) -> None:
-        assert IngestionPipeline._detect_platform(Path("smt7_api.md")) == "SMT7"
+        assert IngestionPipeline._detect_platform(Path("smt7_api.md")) == "V93000"
 
     def test_detects_smt8(self) -> None:
-        assert IngestionPipeline._detect_platform(Path("smt8_flow.md")) == "SMT8"
+        assert IngestionPipeline._detect_platform(Path("smt8_flow.md")) == "V93000"
 
     def test_detects_v93000(self) -> None:
         assert IngestionPipeline._detect_platform(Path("v93000_setup.md")) == "V93000"
@@ -74,6 +75,12 @@ class TestDetectEcosystem:
 
     def test_detects_v93000_from_v93000_path(self) -> None:
         assert IngestionPipeline._detect_ecosystem("v93000/setup.md", "", {}) == "v93000"
+
+    def test_detects_v93000_from_v93000_smt7_path(self) -> None:
+        assert IngestionPipeline._detect_ecosystem("v93000/smt7/api.md", "", {}) == "v93000"
+
+    def test_detects_v93000_from_v93000_smt8_path(self) -> None:
+        assert IngestionPipeline._detect_ecosystem("v93000/smt8/flow.md", "", {}) == "v93000"
 
     def test_uses_json_meta_fallback(self) -> None:
         assert IngestionPipeline._detect_ecosystem("unknown.md", "", {"ecosystem": "igxl"}) == "igxl"
@@ -166,6 +173,30 @@ class TestDetectSoftwareVersion:
         assert IngestionPipeline._detect_software_version("luna_7.2.0.3.readme.md", "", {}) == "smt7"
 
 
+class TestDetectScope:
+    def test_detects_igxl_scope(self) -> None:
+        pipeline = IngestionPipeline(Config({}), MagicMock(), MagicMock())
+
+        assert pipeline._detect_scope("igxl/vbt/execSites.39.08.md", "", {}) == TERADYNE_J750_IGXL
+
+    def test_detects_root_smt7_scope_from_toc_metadata(self) -> None:
+        pipeline = IngestionPipeline(Config({}), MagicMock(), MagicMock())
+
+        assert (
+            pipeline._detect_scope(
+                "20847.md",
+                "",
+                {"toc_path": ["SmarTest 7.4.3 Documentation", "System Reference"]},
+            )
+            == ADVANTEST_V93000_SMT7
+        )
+
+    def test_unknown_document_has_no_scope(self) -> None:
+        pipeline = IngestionPipeline(Config({}), MagicMock(), MagicMock())
+
+        assert pipeline._detect_scope("misc/overview.md", "", {}) is None
+
+
 class TestDetectDocFamily:
     def test_detects_igxl_help(self) -> None:
         assert IngestionPipeline._detect_doc_family("igxl/overview.md", "", {}) == "igxl_help"
@@ -183,7 +214,7 @@ class TestDetectDocFamily:
 class TestRealFixtureDetection:
     """Tests against real JSON metadata files in data/raw/json/."""
 
-    REAL_JSON_DIR = Path("./data/raw/json")
+    REAL_JSON_DIR = Path("./data/raw/json/v93000/smt7")
 
     def test_real_20847_detected_as_v93000_smt7(self) -> None:
         json_path = self.REAL_JSON_DIR / "20847.json"
@@ -193,8 +224,8 @@ class TestRealFixtureDetection:
 
         meta = json.loads(json_path.read_text(encoding="utf-8"))
         title = meta.get("title", "")
-        assert IngestionPipeline._detect_ecosystem("20847.md", title, meta) == "v93000"
-        assert IngestionPipeline._detect_software_version("20847.md", title, meta) == "smt7"
+        assert IngestionPipeline._detect_ecosystem("v93000/smt7/20847.md", title, meta) == "v93000"
+        assert IngestionPipeline._detect_software_version("v93000/smt7/20847.md", title, meta) == "smt7"
 
     def test_real_130224_detected_as_v93000_smt7(self) -> None:
         json_path = self.REAL_JSON_DIR / "130224.json"
@@ -204,8 +235,8 @@ class TestRealFixtureDetection:
 
         meta = json.loads(json_path.read_text(encoding="utf-8"))
         title = meta.get("title", "")
-        assert IngestionPipeline._detect_ecosystem("130224.md", title, meta) == "v93000"
-        assert IngestionPipeline._detect_software_version("130224.md", title, meta) == "smt7"
+        assert IngestionPipeline._detect_ecosystem("v93000/smt7/130224.md", title, meta) == "v93000"
+        assert IngestionPipeline._detect_software_version("v93000/smt7/130224.md", title, meta) == "smt7"
 
     def test_real_102025_detected_as_v93000_smt7(self) -> None:
         json_path = self.REAL_JSON_DIR / "102025.json"
@@ -215,8 +246,8 @@ class TestRealFixtureDetection:
 
         meta = json.loads(json_path.read_text(encoding="utf-8"))
         title = meta.get("title", "")
-        assert IngestionPipeline._detect_ecosystem("102025.md", title, meta) == "v93000"
-        assert IngestionPipeline._detect_software_version("102025.md", title, meta) == "smt7"
+        assert IngestionPipeline._detect_ecosystem("v93000/smt7/102025.md", title, meta) == "v93000"
+        assert IngestionPipeline._detect_software_version("v93000/smt7/102025.md", title, meta) == "smt7"
 
 
 class TestShouldIngest:

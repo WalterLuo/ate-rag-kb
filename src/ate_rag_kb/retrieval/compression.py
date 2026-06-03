@@ -20,9 +20,10 @@ class ContextCompressor:
         self.remove_duplicates = cfg.get("retrieval.compression.remove_duplicates", True)
         self.max_tokens = cfg.get("retrieval.compression.max_tokens", 4000)
 
-    def compress(self, chunks: list[Chunk]) -> list[Chunk]:
+    def compress(self, chunks: list[Chunk], max_tokens: int | None = None) -> list[Chunk]:
         if not chunks:
             return []
+        token_budget = self.max_tokens if max_tokens is None else max_tokens
 
         if self.remove_duplicates:
             seen: set[str] = set()
@@ -40,11 +41,10 @@ class ContextCompressor:
         total_tokens = 0
         for chunk in chunks:
             est_tokens = len(chunk.content) // 4
-            if total_tokens + est_tokens > self.max_tokens:
-                remaining = self.max_tokens - total_tokens
+            if total_tokens + est_tokens > token_budget:
+                remaining = token_budget - total_tokens
                 if remaining > 100:
-                    chunk.content = chunk.content[: remaining * 4]
-                    result.append(chunk)
+                    result.append(replace(chunk, content=chunk.content[: remaining * 4]))
                 break
             result.append(chunk)
             total_tokens += est_tokens

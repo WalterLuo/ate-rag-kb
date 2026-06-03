@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ate_rag_kb.domain.scopes import RetrievalScope
 from ate_rag_kb.utils.config import Config
 from ate_rag_kb.utils.scope import DocumentScope
 
@@ -173,3 +174,97 @@ class TestShouldIngest:
             )
         )
         assert scope.shouldIngest(Path("test.md"), "v93000", "") is False
+
+
+class TestShouldIngestScope:
+    def test_allows_known_scope_when_no_scopes_configured(self) -> None:
+        scope = DocumentScope(Config({}))
+
+        assert (
+            scope.should_ingest_scope(
+                Path("igxl/vbt/execSites.39.08.md"),
+                RetrievalScope("teradyne", "j750", "igxl"),
+            )
+            is True
+        )
+
+    def test_skips_document_without_canonical_scope(self) -> None:
+        scope = DocumentScope(Config({}))
+
+        assert scope.should_ingest_scope(Path("misc/overview.md"), None) is False
+
+    def test_legacy_enabled_ecosystems_rejects_igxl(self) -> None:
+        scope = DocumentScope(Config({"documents": {"enabled_ecosystems": ["v93000"]}}))
+
+        assert (
+            scope.should_ingest_scope(
+                Path("igxl/vbt/execSites.39.08.md"),
+                RetrievalScope("teradyne", "j750", "igxl"),
+            )
+            is False
+        )
+
+    def test_legacy_include_general_docs_false_rejects_v93000_common_docs(self) -> None:
+        scope = DocumentScope(
+            Config(
+                {
+                    "documents": {
+                        "enabled_ecosystems": ["v93000"],
+                        "v93000": {
+                            "enabled_software_versions": ["smt7"],
+                            "include_general_docs": False,
+                        },
+                    }
+                }
+            )
+        )
+
+        assert (
+            scope.should_ingest_scope(
+                Path("v93000/timing/levels.md"),
+                RetrievalScope("advantest", "v93000", ""),
+            )
+            is False
+        )
+
+    def test_canonical_scope_matching_is_isolated_by_vendor(self) -> None:
+        scope = DocumentScope(
+            Config(
+                {
+                    "documents": {
+                        "enabled_scopes": [
+                            {"vendor": "advantest", "platform": "v93000", "software": "smt7"}
+                        ]
+                    }
+                }
+            )
+        )
+
+        assert (
+            scope.should_ingest_scope(
+                Path("other/v93000/smt7/reference.md"),
+                RetrievalScope("teradyne", "v93000", "smt7"),
+            )
+            is False
+        )
+
+    def test_v93000_software_scope_allows_platform_common_docs(self) -> None:
+        scope = DocumentScope(
+            Config(
+                {
+                    "documents": {
+                        "enabled_scopes": [
+                            {"vendor": "advantest", "platform": "v93000", "software": "smt7"}
+                        ]
+                    }
+                }
+            )
+        )
+
+        assert (
+            scope.should_ingest_scope(
+                Path("v93000/timing/levels.md"),
+                RetrievalScope("advantest", "v93000", ""),
+            )
+            is True
+        )

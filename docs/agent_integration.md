@@ -64,28 +64,54 @@ Switching any of these settings automatically triggers a full re-ingest:
 
 ### Document Scope and Software Versions
 
-The `documents` section in `configs/config.yaml` controls which ecosystems and
-software versions are ingested and searchable:
+ATE documentation uses canonical vendor, tester platform, and software scopes:
+
+| Vendor | Tester platform | Software |
+|---|---|---|
+| Advantest | V93000 | SMT7, SMT8 |
+| Teradyne | J750 | IG-XL |
+
+The `documents` section in `configs/config.yaml` controls which scopes are
+ingested and searchable. When `documents.enabled_scopes` is present, it is the
+authoritative scope list:
 
 ```yaml
 documents:
-  enabled_ecosystems:
-    - "v93000"
-  v93000:
-    enabled_software_versions:
-      - "smt7"
-    include_general_docs: true
-    default_software_version: "ask"
-    ambiguity_policy: "ask_when_multiple"
-  igxl:
-    enabled: false
+  enabled_scopes:
+    - vendor: "teradyne"
+      platform: "j750"
+      software: "igxl"
+    - vendor: "advantest"
+      platform: "v93000"
+      software: "smt7"
 ```
 
-- **Enabling IG-XL:** set `documents.igxl.enabled: true`; this switch is authoritative
-  and does not require adding `"igxl"` to `enabled_ecosystems`
-- **Enabling SMT8:** add `"smt8"` to `documents.v93000.enabled_software_versions`
-- SMT7/SMT8 are modeled as `software_version` under the `v93000` ecosystem,
-  not as top-level platforms
+- **Adding SMT8:** add a scope with `vendor: "advantest"`, `platform: "v93000"`,
+  and `software: "smt8"`.
+- **Removing IG-XL:** remove the `teradyne / j750 / igxl` scope, then run a full
+  ingest so stale chunks from the previous scope are cleared.
+- SMT7 and SMT8 are software under the V93000 tester platform. IG-XL is software
+  under the J750 tester platform. None of these software names should be treated
+  as top-level tester platforms.
+
+### Query Routing Rules
+
+Agents should let the KB route platform scope automatically:
+
+- Explicit software or platform resolves to one scope, such as `SMT7` to
+  `v93000/smt7` or `IG-XL` to `j750/igxl`.
+- Exclusive symbols resolve to the generated symbol-catalog owner scope, such
+  as `SelectFirst` to `j750/igxl` and `ON_FIRST_INVOCATION_BEGIN` to
+  `v93000/smt7`.
+- Wrong platform plus exclusive symbol returns a correction notice and answers
+  from the symbol owner scope only.
+- A neutral query with IG-XL plus SMT7 enabled returns two isolated answer
+  sections: `J750 / IG-XL` and `V93000 / SMT7`.
+- When SMT7 and SMT8 are both enabled, a query that says only `V93000` asks the
+  user to choose the software version.
+- After SMT8 enablement, a neutral query across J750 and V93000 asks the user to
+  choose the tester platform first unless the user explicitly asks for two
+  answers.
 
 ## Claude Code Configuration
 
@@ -228,9 +254,10 @@ command syntax, or API references:
   fetching the entire document at once.
 - Use `ate_kb.status` to verify KB health before querying
 
-Large documents observed during beta validation include `146692.md`
-(`RDI_Configure file`), `13920.md` (`Using the Timing Diagram Tool`), and
-`49363_2.md` (`Technology file for a device`). These should be read through
+Large documents observed during beta validation include
+`v93000/smt7/146692.md` (`RDI_Configure file`), `v93000/smt7/13920.md`
+(`Using the Timing Diagram Tool`), and `v93000/smt7/49363_2.md`
+(`Technology file for a device`). These should be read through
 pagination, not as single full-document payloads. MCP `ate_kb.get_document`
 uses a paged backend path; agents should still pass explicit `limit` and
 `offset` values so the response stays focused.
@@ -261,6 +288,30 @@ After initial retrieval:
 2. If not, try `ate_kb.retrieve` with different query phrasing
 3. If still poor, use `ate_kb.related` on the best-matching chunk
 4. If document-level context needed, use `ate_kb.get_document`
+
+### Broad-query retrieval behavior
+
+For broad concept questions (e.g. "what is site control", "how does timing work"),
+the agent does **not** need to manually specify source hints.
+
+- `ate_kb.ask` and `ate_kb.retrieve` automatically detect broad concept queries
+  and expand linked-document coverage via the document graph.
+- Graph-expanded candidates participate in reranking, so related documents
+  have a chance to surface in the final result.
+- A coverage-aware rerank step preserves content-bearing chunks from multiple
+  sources and subtopics rather than letting one document monopolize the result.
+- `BroadConceptAssembler` follows related links discovered from the document
+  graph, prioritizes concept hubs and their forward-linked subtopics, adds
+  bounded representative documents or sections, and drops image
+  placeholders, title-only chunks, and functional-change notes when better
+  answer context exists.
+- The MCP response includes an `answer_contract`. When
+  `answer_contract.completeness_required` is `true`, the calling agent must
+  provide a sectioned broad answer instead of a short overview, inspect the
+  dynamically discovered `coverage_topics`, and cite each answer section.
+- The `processing` field in the MCP response can be used to diagnose where
+  content was dropped (e.g. reranker pruned too aggressively, or diversity
+  selection kept too few sources).
 
 ## Recommended System Prompt
 
@@ -312,6 +363,35 @@ When retrieval scores are low:
 3. **Suggest alternatives**: "You may want to search for [related term] or
    consult the [specific document]."
 4. **Never fabricate**: If the KB doesn't have the answer, say so.
+
+## MCP Processing Fields
+
+`ate_kb.retrieve` and `ate_kb.ask` responses include a `processing` object that
+traces how the result was produced. Use these counts to diagnose drops:
+
+| Field | Meaning |
+|-------|---------|
+| `post_rerank_candidate_count` | Chunks remaining after cross-encoder rerank |
+| `post_rerank_source_count` | Distinct sources represented after rerank |
+| `post_diversity_candidate_count` | Chunks remaining after source-diversity selection (broad queries only) |
+| `post_diversity_source_count` | Distinct sources represented after diversity selection |
+| `broad_context_assembled` | Whether automatic broad-answer assembly ran |
+| `broad_context_discovered_source_count` | Sources inspected during related-document assembly |
+| `broad_context_added_chunk_count` | Representative chunks added by the assembler |
+| `low_utility_chunk_count` | Low-utility chunks removed from assembled context |
+| `coverage_topics` | Distinct document or section topics retained for synthesis |
+| `final_context_source_count` | Distinct sources in the final context package |
+| `final_context_token_estimate` | Approximate token count of the returned context |
+
+The sibling `answer_contract` object is the synthesis contract for the calling
+agent. For broad queries, it sets `answer_mode = "broad_concept"`, requires
+complete coverage, lists expected answer sections, carries the dynamically
+discovered `coverage_topics`, and exposes coverage diagnostics. It must not be
+implemented with topic-specific source hints.
+
+If `post_rerank_source_count` is high but `final_context_source_count` is low,
+the context compressor or parent-child expander may have dropped sources.
+If both are low, the reranker or graph expander may need tuning.
 
 ## Troubleshooting
 

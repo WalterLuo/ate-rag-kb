@@ -13,17 +13,23 @@ import json
 import logging
 import posixpath
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Regex for markdown links: [text](href "optional tooltip")
 # Negative lookbehind (?<!!) excludes image syntax: ![alt](url)
-_MD_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)\s\"]+(?:\.html?|\.md))(?:\s+\"[^\"]*\")?\)")
+_MD_LINK_RE = re.compile(
+    r"(?<!!)\[([^\]]+)\]\(([^)#?\s\"]+\.(?:md|html?))(?:[?#][^)\s\"]*)?(?:\s+\"[^\"]*\")?\)",
+    re.IGNORECASE,
+)
 
 # Regex for raw <a href="..."> tags
-_HTML_A_RE = re.compile(r'<a\s+[^>]*href="([^"]+\.html?)"[^>]*>')
+_HTML_A_RE = re.compile(
+    r'<a\s+[^>]*href="([^"#?]+(?:\.md|\.html?))(?:[?#][^"]*)?"[^>]*>',
+    re.IGNORECASE,
+)
 
 
 def _is_internal_href(href: str) -> bool:
@@ -133,20 +139,24 @@ class DocumentGraphBuilder:
             return f"{m.group(1)}.htm"
         return href
 
-    def _resolve_href(self, href: str) -> str | None:
-        """Map a href (e.g. ``100096.htm``) to its ``source_md`` path."""
-        return self._html_to_md.get(href)
-
-    @staticmethod
-    def _resolve_md_href(href: str, current_md: str) -> str:
-        """Resolve a relative ``.md`` href against the current document's directory.
+    def _resolve_href(self, current_source_md: str, href: str) -> str | None:
+        """Map an internal href to its ``source_md`` path.
 
         Examples:
             ``execSites.39.09.md`` from ``igxl/vbt/execSites.39.08.md`` -> ``igxl/vbt/execSites.39.09.md``
             ``../overview.md`` from ``igxl/vbt/a.md`` -> ``igxl/overview.md``
         """
-        current_dir = str(Path(current_md).parent)
-        return posixpath.normpath(f"{current_dir}/{href}")
+        href_path = PurePosixPath(href)
+        current_parent = PurePosixPath(current_source_md).parent
+
+        if href_path.suffix.lower() == ".md":
+            candidate = posixpath.normpath(str(current_parent / href_path))
+            if (self.markdown_dir / candidate).exists():
+                return candidate
+            return None
+
+        relative_html = posixpath.normpath(str(current_parent / href_path))
+        return self._html_to_md.get(href) or self._html_to_md.get(relative_html)
 
     def build(self) -> dict[str, Any]:
         """Build and return the document graph.
@@ -177,10 +187,7 @@ class DocumentGraphBuilder:
             links = MarkdownLinkParser.extract_links(md_text)
             linked_mds: list[str] = []
             for href in links:
-                if href.lower().endswith(".md"):
-                    target_md = self._resolve_md_href(href, rel_md)
-                else:
-                    target_md = self._resolve_href(href)
+                target_md = self._resolve_href(rel_md, href)
                 if target_md and target_md != rel_md and target_md in all_source_mds:
                     linked_mds.append(target_md)
 
