@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 LEGACY_STATE_FILE = Path("./data/processed/ingestion_state.json")
 STATE_DIR = Path("./data/processed")
+DEFAULT_SCHEMA_VERSION = 6
 
 
 def _compute_profile_key(config: Config) -> str:
@@ -37,18 +38,19 @@ def _compute_profile_key(config: Config) -> str:
         mode = "local" if use_local else "server"
 
     collection = config.get("vector_store.collection_name", "ate_kb")
-    endpoint = url if mode == "server" and url else (f"{host}:{port}" if mode == "server" else local_path)
+    endpoint = (
+        url if mode == "server" and url else (f"{host}:{port}" if mode == "server" else local_path)
+    )
     embedding_model = config.get("embedding.model_name", "")
     chunking_strategies = config.get("chunking.strategies", {})
     chunking_hash = hashlib.sha256(
         json.dumps(chunking_strategies, sort_keys=True).encode()
     ).hexdigest()[:16]
     documents = config.get("documents", {})
-    documents_hash = hashlib.sha256(
-        json.dumps(documents, sort_keys=True).encode()
-    ).hexdigest()[:16]
+    documents_hash = hashlib.sha256(json.dumps(documents, sort_keys=True).encode()).hexdigest()[:16]
+    schema_version = config.get("ingestion.schema_version", DEFAULT_SCHEMA_VERSION)
 
-    raw = f"{mode}:{collection}:{endpoint}:{embedding_model}:{chunking_hash}:{documents_hash}"
+    raw = f"{mode}:{collection}:{endpoint}:{embedding_model}:{chunking_hash}:{documents_hash}:{schema_version}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -72,14 +74,16 @@ def _build_profile(config: Config) -> dict[str, Any]:
     if mode is None:
         mode = "local" if use_local else "server"
 
-    endpoint = url if mode == "server" and url else (f"{host}:{port}" if mode == "server" else local_path)
+    endpoint = (
+        url if mode == "server" and url else (f"{host}:{port}" if mode == "server" else local_path)
+    )
     documents = config.get("documents", {})
     return {
         "mode": mode,
         "collection_name": config.get("vector_store.collection_name", "ate_kb"),
         "endpoint": endpoint,
         "embedding_model": config.get("embedding.model_name", ""),
-        "schema_version": 2,
+        "schema_version": config.get("ingestion.schema_version", DEFAULT_SCHEMA_VERSION),
         "documents_hash": hashlib.sha256(
             json.dumps(documents, sort_keys=True).encode()
         ).hexdigest()[:16],
@@ -130,8 +134,7 @@ class IncrementalIngestion:
         current_profile = _build_profile(self.config)
         if stored_profile != current_profile:
             logger.warning(
-                "Profile mismatch detected (stored %s vs current %s). "
-                "Triggering full rebuild.",
+                "Profile mismatch detected (stored %s vs current %s). Triggering full rebuild.",
                 stored_profile,
                 current_profile,
             )
@@ -149,22 +152,25 @@ class IncrementalIngestion:
     def scan_for_changes(
         self,
         markdown_dir: Path,
-    ) -> tuple[list[Path], list[Path]]:
-        """Return (new_files, modified_files)."""
+    ) -> tuple[list[Path], list[Path], list[str]]:
+        """Return (new_files, modified_files, deleted_source_mds)."""
         state = self._load_state()
         file_states = state.get("files", {})
         new_files: list[Path] = []
         modified_files: list[Path] = []
+        current_files: set[str] = set()
 
-        for md_path in markdown_dir.rglob("*.md"):
+        for md_path in sorted(markdown_dir.rglob("*.md")):
             rel = str(md_path.relative_to(markdown_dir))
+            current_files.add(rel)
             mtime = md_path.stat().st_mtime
             if rel not in file_states:
                 new_files.append(md_path)
             elif mtime > file_states[rel]:
                 modified_files.append(md_path)
 
-        return new_files, modified_files
+        deleted_files = sorted(set(file_states) - current_files)
+        return new_files, modified_files, deleted_files
 
     def run_incremental(
         self,
@@ -173,12 +179,34 @@ class IncrementalIngestion:
         batch_size: int = 1000,
     ) -> dict[str, int]:
         """Ingest only changed documents."""
-        new_files, modified_files = self.scan_for_changes(markdown_dir)
-        logger.info("Incremental scan: %d new, %d modified", len(new_files), len(modified_files))
+        new_files, modified_files, deleted_files = self.scan_for_changes(markdown_dir)
+        logger.info(
+            "Incremental scan: %d new, %d modified, %d deleted",
+            len(new_files),
+            len(modified_files),
+            len(deleted_files),
+        )
+
+        # Ensure sparse vocab is available before upserting
+        self.pipeline._ensure_sparse_vocab(markdown_dir)
 
         state = self._load_state()
         file_states: dict[str, float] = state.get("files", {})
         state["_profile"] = _build_profile(self.config)
+        failed_count = 0
+
+        for rel in deleted_files:
+            try:
+                self.pipeline.vector_store.delete_by_source(rel)
+                file_states.pop(rel, None)
+                logger.info("Deleted chunks for removed file: %s", rel)
+            except Exception as exc:
+                logger.error("Failed to delete chunks for removed file %s: %s", rel, exc)
+                failed_count += 1
+
+        if deleted_files:
+            state["files"] = file_states
+            self._save_state(state)
 
         # Delete old chunks for modified files first
         for md_path in modified_files:
@@ -192,7 +220,6 @@ class IncrementalIngestion:
         batch_chunks: list[Chunk] = []
         batch_rels: list[str] = []
         total_chunks = 0
-        failed_count = 0
         successful_rels: list[str] = []
 
         # Helper to persist state immediately after a batch succeeds
@@ -255,10 +282,16 @@ class IncrementalIngestion:
                 len(successful_rels),
             )
 
+        # Rebuild document graph to reflect any changed links.
+        if new_files or modified_files or deleted_files:
+            self.pipeline._build_document_graph(markdown_dir, json_dir)
+            self.pipeline._build_symbol_catalog(markdown_dir, json_dir)
+
         logger.info("Incremental ingestion complete.")
         return {
             "new": len(new_files),
             "modified": len(modified_files),
+            "deleted": len(deleted_files),
             "chunks": total_chunks,
             "failed": failed_count,
         }

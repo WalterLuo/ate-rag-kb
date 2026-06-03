@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from ate_rag_kb.ingestion.incremental import (
+    DEFAULT_SCHEMA_VERSION,
     IncrementalIngestion,
     _build_profile,
     _compute_profile_key,
@@ -41,6 +42,9 @@ class TestIncrementalIngestion:
             _embed_and_upsert=lambda chunks: None,
             _detect_platform=lambda x: "",
             _detect_doc_type=lambda x: "reference",
+            _ensure_sparse_vocab=lambda md_dir: None,
+            _build_document_graph=lambda md_dir, json_dir=None: None,
+            _build_symbol_catalog=lambda md_dir, json_dir=None: None,
         )
         return p
 
@@ -48,11 +52,12 @@ class TestIncrementalIngestion:
         (markdown_dir / "a.md").write_text("hello")
         incr = IncrementalIngestion(pipeline, state_file=state_file)
 
-        new, modified = incr.scan_for_changes(markdown_dir)
+        new, modified, deleted = incr.scan_for_changes(markdown_dir)
 
         assert len(new) == 1
         assert new[0].name == "a.md"
         assert modified == []
+        assert deleted == []
 
     def test_scan_modified_files(self, markdown_dir: Path, state_file: Path, pipeline: object) -> None:
         md = markdown_dir / "a.md"
@@ -60,10 +65,11 @@ class TestIncrementalIngestion:
         state_file.write_text('{"files": {"a.md": 1.0}}')
 
         incr = IncrementalIngestion(pipeline, state_file=state_file)
-        new, modified = incr.scan_for_changes(markdown_dir)
+        new, modified, deleted = incr.scan_for_changes(markdown_dir)
 
         assert new == []
         assert len(modified) == 1
+        assert deleted == []
 
     def test_scan_no_changes(self, markdown_dir: Path, state_file: Path, pipeline: object) -> None:
         md = markdown_dir / "a.md"
@@ -72,10 +78,36 @@ class TestIncrementalIngestion:
         state_file.write_text(json.dumps({"files": {"a.md": mtime}}))
 
         incr = IncrementalIngestion(pipeline, state_file=state_file)
-        new, modified = incr.scan_for_changes(markdown_dir)
+        new, modified, deleted = incr.scan_for_changes(markdown_dir)
 
         assert new == []
         assert modified == []
+        assert deleted == []
+
+    def test_scan_deleted_files(self, markdown_dir: Path, state_file: Path, pipeline: object) -> None:
+        state_file.write_text(json.dumps({"files": {"deleted.md": 1.0}}))
+        incr = IncrementalIngestion(pipeline, state_file=state_file)
+
+        new, modified, deleted = incr.scan_for_changes(markdown_dir)
+
+        assert new == []
+        assert modified == []
+        assert deleted == ["deleted.md"]
+
+    def test_run_incremental_removes_deleted_files(
+        self, markdown_dir: Path, state_file: Path, pipeline: object
+    ) -> None:
+        deleted_sources: list[str] = []
+        pipeline.vector_store.delete_by_source = deleted_sources.append
+        state_file.write_text(json.dumps({"files": {"deleted.md": 1.0}}))
+        incr = IncrementalIngestion(pipeline, state_file=state_file)
+
+        stats = incr.run_incremental(markdown_dir)
+
+        assert deleted_sources == ["deleted.md"]
+        assert stats["deleted"] == 1
+        saved_state = json.loads(state_file.read_text())
+        assert "deleted.md" not in saved_state["files"]
 
     def test_run_incremental_updates_state(self, markdown_dir: Path, state_file: Path, pipeline: object) -> None:
         (markdown_dir / "a.md").write_text("hello")
@@ -85,6 +117,27 @@ class TestIncrementalIngestion:
 
         assert stats["new"] == 1
         assert state_file.exists()
+
+    def test_run_incremental_rebuilds_graph_and_symbol_catalog(
+        self, markdown_dir: Path, state_file: Path, pipeline: object
+    ) -> None:
+        calls: list[tuple[str, Path, Path | None]] = []
+        pipeline._build_document_graph = lambda md_dir, json_dir=None: calls.append(
+            ("graph", md_dir, json_dir)
+        )
+        pipeline._build_symbol_catalog = lambda md_dir, json_dir=None: calls.append(
+            ("catalog", md_dir, json_dir)
+        )
+        (markdown_dir / "a.md").write_text("hello")
+        json_dir = markdown_dir.parent / "json"
+        incr = IncrementalIngestion(pipeline, state_file=state_file)
+
+        incr.run_incremental(markdown_dir, json_dir=json_dir)
+
+        assert calls == [
+            ("graph", markdown_dir, json_dir),
+            ("catalog", markdown_dir, json_dir),
+        ]
 
     def test_state_is_profile_specific(self, tmp_path: Path) -> None:
         server_config = Config({"vector_store": {"mode": "server", "url": "http://localhost:6333"}})
@@ -127,6 +180,22 @@ class TestIncrementalIngestion:
         incr.state_file.write_text(json.dumps(state))
 
         assert incr.needs_full_rebuild() is True
+
+    def test_profile_uses_configured_schema_version(self) -> None:
+        cfg = Config(
+            {
+                "vector_store": {"mode": "server"},
+                "ingestion": {"schema_version": 9},
+            }
+        )
+
+        assert _build_profile(cfg)["schema_version"] == 9
+
+    def test_profile_uses_default_schema_version(self) -> None:
+        cfg = Config({"vector_store": {"mode": "server"}})
+
+        assert DEFAULT_SCHEMA_VERSION == 6
+        assert _build_profile(cfg)["schema_version"] == 6
 
     def test_legacy_state_renamed(self, tmp_path: Path, pipeline: object) -> None:
         legacy = tmp_path / "ingestion_state.json"

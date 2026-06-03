@@ -14,6 +14,8 @@ from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.chunking.strategies import HierarchicalChunker
 from ate_rag_kb.domain.scopes import RetrievalScope, TERADYNE_J750_IGXL
 from ate_rag_kb.embedding.encoder import EmbeddingEncoder
+from ate_rag_kb.ingestion.document_graph import DocumentGraphBuilder
+from ate_rag_kb.ingestion.symbol_catalog import SymbolCatalogBuilder
 from ate_rag_kb.utils.config import Config
 from ate_rag_kb.utils.scope import DocumentScope
 from ate_rag_kb.vector_store.qdrant_client import QdrantVectorStore
@@ -99,7 +101,9 @@ class IngestionPipeline:
                     metadata[key] = value
 
         source_md = str(md_path.relative_to(self.config.get("data.markdown_dir", ".")))
-        source_json = str(json_path.relative_to(self.config.get("data.json_dir", "."))) if json_path else ""
+        source_json = (
+            str(json_path.relative_to(self.config.get("data.json_dir", "."))) if json_path else ""
+        )
 
         metadata["source_md"] = source_md
         metadata["source_json"] = source_json
@@ -133,6 +137,16 @@ class IngestionPipeline:
             metadata["tags"] = []
         if source_md.startswith("igxl/") and "ig-xl" not in metadata["tags"]:
             metadata["tags"].append("ig-xl")
+        elif source_md.startswith("v93000/smt7/"):
+            if "v93000" not in metadata["tags"]:
+                metadata["tags"].append("v93000")
+            if "smt7" not in metadata["tags"]:
+                metadata["tags"].append("smt7")
+        elif source_md.startswith("v93000/smt8/"):
+            if "v93000" not in metadata["tags"]:
+                metadata["tags"].append("v93000")
+            if "smt8" not in metadata["tags"]:
+                metadata["tags"].append("smt8")
         elif source_md.startswith("smt7/") and "smt7" not in metadata["tags"]:
             metadata["tags"].append("smt7")
         elif source_md.startswith("v93000/") and "v93000" not in metadata["tags"]:
@@ -221,6 +235,63 @@ class IngestionPipeline:
         self._embed_and_upsert(chunks)
         return chunks
 
+    def _ensure_sparse_vocab(self, markdown_dir: Path, *, force: bool = False) -> None:
+        """Fit sparse encoder vocabulary from all markdown files when needed."""
+        if not getattr(self.vector_store, "enable_sparse_vectors", True):
+            return
+        if self.vector_store.sparse_encoder.is_fitted() and not force:
+            return
+        md_files = sorted(markdown_dir.rglob("*.md"))
+        texts: list[str] = []
+        for md_path in md_files:
+            try:
+                texts.append(md_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+        if texts:
+            self.vector_store.sparse_encoder.fit(texts)
+            logger.info("Fitted sparse vocab from %d documents", len(texts))
+
+    def rebuild_sparse_vocabulary(self, markdown_dir: Path) -> None:
+        """Rebuild the persisted sparse vocabulary from the current corpus."""
+        self._ensure_sparse_vocab(markdown_dir, force=True)
+
+    def _build_document_graph(
+        self,
+        markdown_dir: Path,
+        json_dir: Path | None = None,
+    ) -> None:
+        """Build and persist cross-document link graph."""
+        try:
+            graph_builder = DocumentGraphBuilder(
+                markdown_dir=markdown_dir,
+                json_dir=json_dir,
+            )
+            processed_dir = Path(self.config.get("data.processed_dir", "./data/processed"))
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            graph_builder.save(processed_dir / "document_graph.json")
+            logger.info("Built document graph")
+        except Exception as exc:
+            logger.warning("Failed to build document graph: %s", exc)
+
+    def _build_symbol_catalog(
+        self,
+        markdown_dir: Path,
+        json_dir: Path | None = None,
+    ) -> None:
+        """Build and persist exclusive symbol ownership catalog."""
+        try:
+            catalog = SymbolCatalogBuilder(
+                markdown_dir=markdown_dir,
+                json_dir=json_dir,
+                scope_resolver=self._detect_scope,
+            ).build()
+            processed_dir = Path(self.config.get("data.processed_dir", "./data/processed"))
+            catalog.save(processed_dir / "symbol_catalog.json")
+            logger.info("Built symbol ownership catalog")
+        except Exception as exc:
+            logger.warning("Failed to build symbol ownership catalog: %s", exc)
+
     def ingest_directory(
         self,
         markdown_dir: Path,
@@ -230,6 +301,8 @@ class IngestionPipeline:
         """Batch ingest all markdown files in a directory with batched embedding."""
         md_files = sorted(markdown_dir.rglob("*.md"))
         logger.info("Found %d markdown files in %s", len(md_files), markdown_dir)
+
+        self._ensure_sparse_vocab(markdown_dir)
 
         total_chunks = 0
         batch_chunks: list[Chunk] = []
@@ -269,6 +342,10 @@ class IngestionPipeline:
             batch_chunks = []
 
         logger.info("Ingested %d chunks total.", total_chunks)
+
+        self._build_document_graph(markdown_dir, json_dir)
+        self._build_symbol_catalog(markdown_dir, json_dir)
+
         return total_chunks
 
     @staticmethod
@@ -308,9 +385,11 @@ class IngestionPipeline:
         name = source_md.lower()
         if source_md.startswith("igxl/"):
             return "igxl"
+        if source_md.startswith("v93000/"):
+            return "v93000"
         if "smartest64_7" in name or "smartest64_8" in name or "smt7/" in name or "smt8/" in name:
             return "v93000"
-        if source_md.startswith("tdc/") or source_md.startswith("v93000/"):
+        if source_md.startswith("tdc/"):
             return "v93000"
 
         # Search toc_path and title for ecosystem indicators
@@ -355,7 +434,10 @@ class IngestionPipeline:
             text_lower = text.lower()
             # Only match version numbers in V93000/SmarTest context
             if "smartest" in text_lower or "smt" in text_lower or "v93000" in text_lower:
-                if any(v in text_lower for v in [" 7.", "7.4", "7.x", "7.0", "7.1", "7.2", "7.3", "7.5"]):
+                if any(
+                    v in text_lower
+                    for v in [" 7.", "7.4", "7.x", "7.0", "7.1", "7.2", "7.3", "7.5"]
+                ):
                     return "smt7"
                 if any(v in text_lower for v in [" 8.", "8.x", "8.0", "8.1"]):
                     return "smt8"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -15,7 +16,13 @@ from ate_rag_kb.utils.config import Config
 class TestIngestDocument:
     @pytest.fixture
     def pipeline(self, tmp_path: Path) -> IngestionPipeline:
-        cfg = Config({"data": {"markdown_dir": str(tmp_path), "json_dir": str(tmp_path)}})
+        cfg = Config({
+            "data": {
+                "markdown_dir": str(tmp_path),
+                "json_dir": str(tmp_path),
+                "processed_dir": str(tmp_path / "processed"),
+            }
+        })
         encoder = MagicMock()
         encoder.encode.return_value = np.array([[0.1, 0.2]])
         vs = MagicMock()
@@ -87,7 +94,13 @@ class TestIngestDocument:
 
 class TestIngestDirectory:
     def test_ingest_directory_counts_chunks(self, tmp_path: Path) -> None:
-        cfg = Config({"data": {"markdown_dir": str(tmp_path), "json_dir": str(tmp_path)}})
+        cfg = Config({
+            "data": {
+                "markdown_dir": str(tmp_path),
+                "json_dir": str(tmp_path),
+                "processed_dir": str(tmp_path / "processed"),
+            }
+        })
         encoder = MagicMock()
         encoder.encode.return_value = np.array([[0.1, 0.2]])
         vs = MagicMock()
@@ -99,7 +112,13 @@ class TestIngestDirectory:
         assert total > 0
 
     def test_ingest_directory_skips_failed_files(self, tmp_path: Path) -> None:
-        cfg = Config({"data": {"markdown_dir": str(tmp_path), "json_dir": str(tmp_path)}})
+        cfg = Config({
+            "data": {
+                "markdown_dir": str(tmp_path),
+                "json_dir": str(tmp_path),
+                "processed_dir": str(tmp_path / "processed"),
+            }
+        })
         encoder = MagicMock()
         vs = MagicMock()
         pipeline = IngestionPipeline(cfg, encoder, vs)
@@ -110,7 +129,13 @@ class TestIngestDirectory:
         assert total == 0
 
     def test_ingest_directory_with_json_dir(self, tmp_path: Path) -> None:
-        cfg = Config({"data": {"markdown_dir": str(tmp_path), "json_dir": str(tmp_path / "json")}})
+        cfg = Config({
+            "data": {
+                "markdown_dir": str(tmp_path),
+                "json_dir": str(tmp_path / "json"),
+                "processed_dir": str(tmp_path / "processed"),
+            }
+        })
         encoder = MagicMock()
         encoder.encode.return_value = np.array([[0.1, 0.2]])
         vs = MagicMock()
@@ -125,3 +150,44 @@ class TestIngestDirectory:
         json_path.write_text('{"title": "Doc"}')
         total = pipeline.ingest_directory(tmp_path, json_dir)
         assert total > 0
+
+    def test_ingest_directory_builds_symbol_catalog(self, tmp_path: Path) -> None:
+        cfg = Config({
+            "data": {
+                "markdown_dir": str(tmp_path),
+                "json_dir": str(tmp_path),
+                "processed_dir": str(tmp_path / "processed"),
+            }
+        })
+        encoder = MagicMock()
+        encoder.encode.return_value = np.array([[0.1, 0.2]])
+        vs = MagicMock()
+        pipeline = IngestionPipeline(cfg, encoder, vs)
+        md = tmp_path / "igxl" / "vbt" / "execSites.39.08.md"
+        md.parent.mkdir(parents=True)
+        md.write_text("# SelectFirst Method")
+
+        pipeline.ingest_directory(tmp_path)
+
+        payload = json.loads((tmp_path / "processed" / "symbol_catalog.json").read_text())
+        assert payload["owners"]["selectfirst"]["platform"] == "j750"
+
+    def test_force_rebuild_sparse_vocab_refits_existing_encoder(self, tmp_path: Path) -> None:
+        cfg = Config({"data": {"processed_dir": str(tmp_path / "processed")}})
+        pipeline = IngestionPipeline(cfg, MagicMock(), MagicMock())
+        pipeline.vector_store.sparse_encoder.is_fitted.return_value = True
+        (tmp_path / "doc.md").write_text("Site Control")
+
+        pipeline._ensure_sparse_vocab(tmp_path, force=True)
+
+        pipeline.vector_store.sparse_encoder.fit.assert_called_once_with(["Site Control"])
+
+    def test_rebuild_sparse_vocabulary_forces_refit(self, tmp_path: Path) -> None:
+        cfg = Config({"data": {"processed_dir": str(tmp_path / "processed")}})
+        pipeline = IngestionPipeline(cfg, MagicMock(), MagicMock())
+        pipeline.vector_store.sparse_encoder.is_fitted.return_value = True
+        (tmp_path / "doc.md").write_text("Site Control")
+
+        pipeline.rebuild_sparse_vocabulary(tmp_path)
+
+        pipeline.vector_store.sparse_encoder.fit.assert_called_once_with(["Site Control"])
