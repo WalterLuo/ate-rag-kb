@@ -26,6 +26,20 @@ MCP tools (stdio transport):
 - `ate_kb.search`, `ate_kb.retrieve`, `ate_kb.ask`
 - `ate_kb.related`, `ate_kb.get_document`
 
+Agent routing rule:
+- ATE / SMT7 / V93000 / IG-XL / J750 technical questions must use the
+  `ate_kb` MCP tools before WebSearch, shell grep/rg, CLI search, or raw
+  markdown reads.
+- In Codex, `ate_kb` can be a deferred MCP tool. If the `ate_kb` tools are not
+  visible, first call `tool_search` with a query such as
+  `ate_kb status ask retrieve search get_document`, then use
+  `ate_kb.ask` or `ate_kb.retrieve`.
+- In Claude Code, first confirm the project MCP server is available through
+  the MCP tool list or `/mcp` state. Use `mcp__ate-kb__ate_kb_ask` or
+  `mcp__ate-kb__ate_kb_retrieve` before fallback sources.
+- Do not answer ATE KB questions from memory or public web results unless MCP
+  is unavailable, fails, or returns insufficient context.
+
 Current operational status:
 - Multi-platform retrieval coordinator is active for FastAPI and MCP.
 - Current enabled scopes are Teradyne J750 / IG-XL and Advantest V93000 / SMT7.
@@ -57,9 +71,10 @@ PMU, test flow, tester behavior, command syntax, or API references:
 8. Cite `source_md`, `section_title`, and relevant command/document names in the
    final answer.
 
-Default flow: user question -> `ate_kb.retrieve` or `ate_kb.ask` -> inspect
-`context_package` and citations -> `ate_kb.get_document` if full-document
-context is needed -> synthesize the answer.
+Default flow: user question -> expose `ate_kb` first if the tools are deferred
+or hidden -> `ate_kb.retrieve` or `ate_kb.ask` -> inspect `context_package` and
+citations -> `ate_kb.get_document` if full-document context is needed ->
+synthesize the answer.
 
 Canonical ATE terminology:
 
@@ -237,6 +252,53 @@ in MCP handlers.
 - `Config` class supports dot-notation: `config.get("embedding.model_name")`.
 - Chunking limits are read from `chunking.strategies.*.max_length` and `overlap`.
 - The `paragraph_threshold` defaults to `max(800, section_max_length // 5)`.
+
+### Retrieval configuration options
+
+These keys can be added to `configs/config.yaml` under `retrieval.reranker`:
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `broad_candidate_top_k` | Candidate budget before coverage selection for broad queries | 40 |
+| `broad_final_top_k` | Final chunk count after coverage selection for broad queries | 14 |
+| `broad_max_sources` | Maximum distinct sources to retain in a broad query result | 8 |
+| `broad_min_sources` | Minimum source-diverse base before topic coverage fill | 3 |
+| `broad_max_chunks_per_source` | Maximum reranked chunks retained per source | 3 |
+
+The `retrieval.broad_context` section controls automatic context assembly. Its
+default budget is 32 discovered sources, 16 final chunks, and about 9000 tokens.
+
+### State Isolation and Profile Changes
+
+Incremental ingestion state is stored per profile (hash of backend mode,
+collection name, embedding model, chunking config, and document scope).
+Switching any of these settings automatically triggers a full re-ingest:
+
+- Old `data/processed/ingestion_state.json` is preserved as `.json.legacy`
+- A new profile-specific state file is created under `data/processed/state_{hash}.json`
+- The collection is cleared before the full rebuild to remove stale points
+- Full ingest records the current profile state after a successful rebuild, so
+the next `--incremental` run can scan for real changes instead of rebuilding
+again immediately.
+
+### Migration from Local Mode
+
+If you previously ingested into `./data/qdrant_storage/` (local mode) and want
+to switch to server mode:
+
+1. Update `configs/config.yaml`: set `vector_store.mode: server`.
+2. Start the Qdrant server (`docker compose up -d qdrant`).
+3. Re-run ingestion (server collections are independent of local files):
+   ```bash
+   uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
+   ```
+4. Verify:
+   ```bash
+   uv run -m ate_rag_kb.cli.main status
+   ```
+
+There is no automatic migration path from local files to server collections;
+re-ingestion is required once.
 
 ## Development Conventions
 

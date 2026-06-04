@@ -28,10 +28,28 @@ test flow, tester behavior, command syntax, or API references:
 9. Cite `source_md`, `section_title`, and command/document names in final
    answers when the answer comes from the KB.
 
+### Deferred MCP Bootstrap
+
+`ate_kb` may be a deferred MCP tool in Codex. If `ate_kb.status`,
+`ate_kb.ask`, `ate_kb.retrieve`, `ate_kb.search`, or `ate_kb.get_document` are
+not visible in the current tool list, do not answer from memory, web search,
+shell search, or raw markdown reads. First expose the tools with `tool_search`
+using a query such as:
+
+```text
+ate_kb status ask retrieve search get_document
+```
+
+After the tools are exposed, run `ate_kb.status` when availability is uncertain,
+then answer with `ate_kb.ask` or `ate_kb.retrieve`. Web search is never the
+first source for ATE KB questions and is allowed only after MCP is unavailable
+or insufficient.
+
 Default flow:
 
 ```text
 User asks ATE question
+-> if ate_kb tools are not visible, call tool_search for ate_kb
 -> call ate_kb.retrieve or ate_kb.ask
 -> inspect citations and context_package
 -> call ate_kb.get_document with limit/offset only if full-document context is needed

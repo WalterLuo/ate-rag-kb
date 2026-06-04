@@ -2,89 +2,67 @@
 
 > **Your coding agent's long-term memory for ATE platform knowledge.**
 
-Query TDC/SmarTest technical documentation, APIs, error codes, and debug flows
-directly from Claude Code, OpenClaw, Codex, or Cursor. Get reliable, cited
-answers about timing, patterns, DPS, PMU, and test flows — without leaving your
-IDE.
+Query ATE technical documentation, APIs, error codes, and debug flows directly
+from Claude Code, Cursor, Codex, or other MCP-enabled agents. Get reliable,
+cited answers about timing, patterns, DPS, PMU, and test flows without leaving
+your IDE.
+
+**Built for:** Test engineers using AI coding assistants, teams maintaining ATE
+test programs (TDC, SmarTest, V93000), and anyone with authorized local ATE
+documentation who needs grounded, cited answers.
 
 ---
 
-## Built-In Documents
-
-This repo ships with **pre-parsed TDC/SmarTest technical documentation**.
-You do not need to find, convert, or format any documents — they are already
-placed under `./data/raw/markdown/`.
-
-**Built-in coverage:**
-
-| Platform | Version | Content |
-|----------|---------|---------|
-| ADVANTEST V93000 | SmarTest 7.4.3 / 7.10.11 | PinConfig, Level, Timing, Test Flow, SmartRDI, TML, DPS, PMU, Digital, TMU, RF |
-
-**Canonical ATE terminology:**
-
-| Vendor | Tester platform | Software |
-|---|---|---|
-| Advantest | V93000 | SMT7, SMT8 |
-| Teradyne | J750 | IG-XL |
-
-V93000 and J750 are tester platforms. SMT7, SMT8, and IG-XL are software
-scopes used for ingestion, retrieval routing, and citation isolation.
-
-**First-time setup (approx. 15-30 min):**
+## Quick Start (15–30 min)
 
 ```bash
 # 1. Install dependencies
 uv sync
 
-# 2. Start Qdrant server (see Qdrant Server Setup below)
+# 2. Start Qdrant server
 docker compose up -d qdrant
 
-# 3. Download the embedding + reranker models on first use
-#    Automatically cached to ./embeddings/cache/ unless ATE_KB_MODEL_CACHE is set
+# 3. Download embedding models
+#    Option A: use the pre-packaged cache (~6.4 GB)
+#    Download from PikPak and unzip into the project root:
+#    https://mypikpak.com/s/VOuGT6UlblOdQSw2ZNEP9F12o2
+#    Option B: let Hugging Face download on first use
+#    (temporarily set local_files_only: false in configs/config.yaml)
+uv run python scripts/verify_models.py
 
-# 4. Ingest the built-in documents into Qdrant
+# 4. Prepare local authorized Markdown documents
+mkdir -p data/raw/markdown/v93000/smt7
+# Copy or generate your own authorized Markdown files into data/raw/markdown/
+
+# 5. Ingest documents (first run is full; subsequent runs use --incremental)
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
 
-# 5. Start the MCP server and connect your agent
+# 6. Configure your agent to use the MCP server and ATE KB routing policy
+uv run python scripts/install_mcp.py --install-agent-policy
+# Or see "Agent Integration" below for manual configuration.
+
+# 7. Validate plugin/routing configuration, then restart Codex / Claude Code / Cursor
+uv run python scripts/validate_plugin_install.py
+uv run python scripts/validate_agent_routing_policy.py
+
+# 8. Start the MCP server (for agent integration)
 uv run -m ate_rag_kb.cli.main mcp
+
+# 9. Or start the HTTP API (for direct access)
+uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 ```
 
 > **Note:** The model cache (`./embeddings/cache/`) is **not** committed to git
-> due to its large size. The ingestion step is required once after cloning,
-> unless you restore a prepared Qdrant snapshot or `data/qdrant_server/` package.
+> due to its large size. Ingestion creates local state under `data/processed/`
+> and `data/qdrant_server/`; these generated files are also not committed.
 >
 > **Server mode is the default.** By default the KB connects to
-> `http://localhost:6333` (Qdrant server). Local file mode (`./data/qdrant_storage/`)
-> is available for single-process development only and will trigger
-> `portalocker.AlreadyLocked` if multiple processes access it simultaneously.
+> `http://localhost:6333` (Qdrant server). Local file mode
+> (`./data/qdrant_storage/`) is available for single-process development only
+> and will trigger `portalocker.AlreadyLocked` if multiple processes access it
+> simultaneously.
 
 ---
-
-## Who Is This For
-
-- Test engineers using Claude Code / OpenClaw / Codex / Cursor
-- Teams maintaining ATE test programs (TDC, SmarTest, V93000)
-- Anyone who needs reliable, cited answers about timing, patterns, DPS, PMU,
-  test flows, and platform APIs
-
-## Qdrant Server Setup
-
-The default `configs/config.yaml` uses **server mode** (`url: http://localhost:6333`).
-Start Qdrant before ingesting or querying:
-
-```bash
-# Via Docker Compose (recommended)
-docker compose up -d qdrant
-
-# Or via docker run
-docker run -d -p 6333:6333 -p 6334:6334 \
-  -v $(pwd)/data/qdrant_server:/qdrant/storage \
-  qdrant/qdrant:latest
-```
-
-Qdrant data is persisted to `./data/qdrant_server/` (separate from the legacy
-local-mode `./data/qdrant_storage/` to avoid lock conflicts).
 
 ## Model Cache and Offline Mode
 
@@ -96,10 +74,23 @@ embedding:
   local_files_only: true
 ```
 
-Prepare and reuse these cached models:
+Required cached models:
 
 - `BAAI/bge-m3` for embeddings
 - `BAAI/bge-reranker-v2-m3` for cross-encoder reranking
+
+**Download pre-packaged model cache (~6.4 GB):**
+
+If you don't want to download models from Hugging Face manually, use the
+pre-packaged cache archive:
+
+1. Download from [PikPak](https://mypikpak.com/s/VOuGT6UlblOdQSw2ZNEP9F12o2)
+2. Unzip `ate-kb-model-cache.zip` into the project root
+3. Verify with `uv run python scripts/verify_models.py`
+
+The archive contains the full Hugging Face cache layout
+(`models--BAAI--bge-m3` and `models--BAAI--bge-reranker-v2-m3`) ready to use
+with `local_files_only: true`.
 
 Set a shared or external cache directory when useful:
 
@@ -113,17 +104,6 @@ Windows PowerShell:
 $env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
 ```
 
-For first-time setup, prepare the cache on a networked machine or temporarily
-set `local_files_only: false`, then restore cache-only mode:
-
-```yaml
-embedding:
-  cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
-  local_files_only: true
-```
-
-Offline mode fails fast with a clear error if either model cache is missing.
-
 ### Local Mode (Single-Process Dev Only)
 
 If you need local mode for quick debugging, set `mode: local` in
@@ -135,100 +115,43 @@ vector_store:
   local_path: "./data/qdrant_storage"
 ```
 
-> Warning: Local mode locks the storage directory. Only one process can access
-> it at a time. Do **not** use local mode when running MCP + CLI + API
+> **Warning:** Local mode locks the storage directory. Only one process can
+> access it at a time. Do **not** use local mode when running MCP + CLI + API
 > concurrently.
 
-## State Isolation and Profile Changes
+---
 
-Incremental ingestion state is stored per profile (hash of backend mode,
-collection name, embedding model, chunking config, and document scope).
-Switching any of these settings automatically triggers a full re-ingest:
+## Adding Documents
 
-- Old `data/processed/ingestion_state.json` is preserved as `.json.legacy`
-- A new profile-specific state file is created under `data/processed/state_{hash}.json`
-- The collection is cleared before the full rebuild to remove stale points
-- Full ingest records the current profile state after a successful rebuild, so
-  the next `--incremental` run can scan for real changes instead of rebuilding
-  again immediately.
+Use only documents that you are authorized to ingest and query. The repository
+does not grant rights to third-party ATE documentation.
 
-## Document Scope
+**Canonical ATE terminology:**
 
-ATE documentation is scoped by `vendor`, tester `platform`, and `software`.
-When `documents.enabled_scopes` is present in `configs/config.yaml`, it is the
-authoritative list of searchable scopes. The current multi-platform profile is:
+| Vendor | Tester platform | Software |
+|---|---|---|
+| Advantest | V93000 | SMT7, SMT8 |
+| Teradyne | J750 | IG-XL |
 
-```yaml
-documents:
-  enabled_scopes:
-    - vendor: "teradyne"
-      platform: "j750"
-      software: "igxl"
-    - vendor: "advantest"
-      platform: "v93000"
-      software: "smt7"
-```
+V93000 and J750 are tester platforms. SMT7, SMT8, and IG-XL are software
+scopes used for ingestion, retrieval routing, and citation isolation.
 
-SMT8 should be added as `advantest / v93000 / smt8`, not as a separate tester
-platform. After changing scope configuration, run a full ingest so stale chunks
-from previously enabled scopes are cleared.
-
-## Migration from Local Mode
-
-If you previously ingested into `./data/qdrant_storage/` (local mode) and want
-to switch to server mode:
-
-1. Update `configs/config.yaml`: set `vector_store.mode: server`.
-2. Start the Qdrant server (`docker compose up -d qdrant`).
-3. Re-run ingestion (server collections are independent of local files):
-   ```bash
-   uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
-   ```
-3. Verify:
-   ```bash
-   uv run -m ate_rag_kb.cli.main status
-   ```
-
-There is no automatic migration path from local files to server collections;
-re-ingestion is required once.
-
-## Quick Start
-
-```bash
-# 1. Install dependencies
-uv sync
-
-# 2. Start Qdrant server
-docker compose up -d qdrant
-
-# 3. Ingest documents (built-in docs are already in ./data/raw/markdown)
-uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental
-
-# 4. Verify the collection
-uv run -m ate_rag_kb.cli.main status
-
-# 5. Start the MCP server (for agent integration)
-uv run -m ate_rag_kb.cli.main mcp
-
-# 6. Or start the HTTP API (for direct access)
-uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
-```
-
-## Adding Your Own Documents
-
-If you have additional Markdown files + JSON metadata, place them under:
+If you already have Markdown files, place them under the canonical scope path:
 
 ```
 data/raw/
 ├── markdown/
-│   ├── v93000/smt7/   # V93000/SmarTest 7 built-in docs
-│   └── igxl/          # IG-XL docs (optional)
+│   ├── v93000/smt7/   # V93000 / SmarTest 7 documents
+│   ├── v93000/smt8/   # V93000 / SmarTest 8 documents
+│   └── igxl/          # J750 / IG-XL documents
 ├── json/
-│   ├── v93000/smt7/   # metadata sidecars for SMT7
-│   └── igxl/          # metadata sidecars for IG-XL
+│   ├── v93000/smt7/   # optional metadata sidecars for SMT7
+│   ├── v93000/smt8/   # optional metadata sidecars for SMT8
+│   └── igxl/          # optional metadata sidecars for IG-XL
 └── assets/
-    ├── v93000/smt7/   # images for SMT7 docs
-    └── igxl/          # images for IG-XL docs
+    ├── v93000/smt7/   # optional local images for SMT7 docs
+    ├── v93000/smt8/   # optional local images for SMT8 docs
+    └── igxl/          # optional local images for IG-XL docs
 ```
 
 Then run ingestion:
@@ -237,36 +160,68 @@ Then run ingestion:
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental
 ```
 
-## Beta Validation
+### Using a Local Conversion Script
 
-Before using the KB with real engineers, run:
+You can provide a local script that converts documentation you are allowed to
+use into Markdown. Keep vendor-specific conversion scripts outside the public
+repository, or place private scripts under `scripts/local/`, which is ignored by
+git.
 
-1. [Agent E2E Validation](docs/agent_e2e_validation.md) — step-by-step verification
-2. [Beta Checklist](docs/beta_checklist.md) — 10-question trial with pass criteria
-3. [Beta 10-Question Trial Report](docs/archive/beta_test_report_10q.md) — archived
-   first engineer-facing trial result
-4. [Beta 10-Question Retest Plan](docs/archive/beta_retest_10q.md) — archived
-   post-fix retest procedure
+For TDC/Eclipse Help and IG-XL help sources, use the companion converter
+project: [ate-help-converters](https://github.com/WalterLuo/ate-help-converters).
+It provides macOS and Windows one-click installers plus CLI commands for
+converting authorized local help files into Markdown/JSON/assets.
 
-Current beta status: ready for engineer handoff. The first recorded trial
-passed 9/10 questions. After the ARRAY citation fix, expected-answer checklist
-updates, and paginated `get_document` implementation, the first five priority
-questions were retested and passed; evidence is recorded in
-[docs/archive/10q_retest.csv](docs/archive/10q_retest.csv).
+Do not commit converted Markdown, extracted assets, generated JSON sidecars, or
+vector database snapshots unless you have explicit redistribution rights.
 
-Copy the example MCP config before starting:
-
-```bash
-cp .mcp.example.json .mcp.json
-# Edit .mcp.json and replace /path/to/ate-rag-kb with your absolute path
-```
+---
 
 ## Agent Integration
 
-### Claude Code (MCP — Recommended)
+### Multi-Harness Plugin Installation (Recommended)
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
-or equivalent:
+ATE RAG KB can be installed as a plugin in multiple AI CLI tools. Each harness
+has its own manifest and installation path. Run the automatic MCP installer to
+configure all detected tools:
+
+```bash
+# Configure all detected AI CLI tools
+uv run python scripts/install_mcp.py --install-agent-policy
+
+# Dry-run first to preview changes
+uv run python scripts/install_mcp.py --dry-run
+
+# Configure only specific tools
+uv run python scripts/install_mcp.py --harness claude,cursor
+
+# Configure MCP only, without global agent policy (not recommended for projectless sessions)
+uv run python scripts/install_mcp.py --skip-agent-policy
+```
+
+#### Per-Harness Quick Install
+
+| Harness | Install Command |
+|---------|-----------------|
+| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git` |
+| **Cursor** | `/add-plugin ate-rag-kb` |
+| **Codex** | `/plugins` → search "ate-rag-kb" |
+| **Gemini CLI** | `gemini extensions install https://github.com/walter-luo/ate-rag-kb.git` |
+| **OpenCode** | Add `"ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git"` to `opencode.json` plugins |
+| **Copilot CLI** | `copilot plugin install ate-rag-kb@ate-rag-kb-marketplace` |
+
+For detailed per-harness instructions, troubleshooting, and architecture notes,
+see [docs/PLUGIN_INSTALL.md](docs/PLUGIN_INSTALL.md).
+
+For local or team Codex marketplace installs, register this repository's
+`.agents/plugins/marketplace.json` and then search for `ate-rag-kb`. Public
+Codex marketplace search requires publishing or registering the marketplace
+outside this repository.
+
+### Claude Code (MCP — Manual Config)
+
+If you prefer manual configuration, add to `~/.claude/settings.json`
+(macOS / Linux) or `%USERPROFILE%\.claude\settings.json` (Windows):
 
 ```json
 {
@@ -291,9 +246,6 @@ or equivalent:
 
 Restart Claude Code. The agent will auto-discover `ate_kb.*` tools.
 
-For detailed configuration and usage rules, see
-[docs/agent_integration.md](docs/agent_integration.md).
-
 ### Default Agent Behavior
 
 When an engineer asks an ATE technical question, the agent should use MCP tools
@@ -301,6 +253,21 @@ first and choose the retrieval strategy itself. The normal path is
 `ate_kb.retrieve` or `ate_kb.ask`, followed by `ate_kb.get_document` only when a
 full source document is needed. CLI search, grep, and manual markdown reads are
 fallbacks for unavailable or insufficient MCP results, not the default workflow.
+
+Configuring an MCP server does not by itself guarantee the model will call MCP
+first. In Codex, `ate_kb` may be a deferred tool that must be exposed through
+`tool_search`. The recommended installer command,
+`uv run python scripts/install_mcp.py --install-agent-policy`, installs a
+managed ATE KB Routing policy in addition to MCP configuration. This matters
+especially for Codex projectless sessions. If you run `--skip-agent-policy`,
+projectless sessions may not reliably prefer `ate_kb`.
+
+After installation, restart your agent and run:
+
+```bash
+uv run python scripts/validate_plugin_install.py
+uv run python scripts/validate_agent_routing_policy.py
+```
 
 ## Available Agent Tools
 
@@ -322,7 +289,32 @@ page through large documents rather than fetching all chunks at once. The MCP
 handler uses a paged retrieval path internally, so large documents do not need
 to be loaded in full for the first page.
 
-## Evaluation
+---
+
+## Project Architecture
+
+```
+Markdown + JSON  ->  IngestionPipeline  ->  Chunks  ->  EmbeddingEncoder
+                                                            |
+                                                            v
+FastAPI / MCP  <-  RetrievalCoordinator  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+```
+
+**RetrievalPipeline stages:**
+
+1. **HybridRetriever** — dense + sparse vector search with Reciprocal Rank Fusion
+2. **DocumentGraphExpander** (optional) — follows internal document links
+3. **Reranker** — cross-encoder (`BAAI/bge-reranker-v2-m3`)
+4. **BroadConceptAssembler** (optional) — coverage-aware selection for broad queries
+5. **ParentChildExpander** — enriches with parent/sibling context
+6. **ContextCompressor** — deduplicates, merges adjacent, token-caps
+
+For advanced configuration options (chunking strategies, retrieval parameters,
+state isolation, migration from local mode), see [CLAUDE.md](CLAUDE.md).
+
+---
+
+## Evaluation & Validation
 
 Run retrieval evaluation:
 
@@ -339,55 +331,20 @@ Current baseline (50 questions):
 | `source_precision@5` | 1.0000 |
 | `failed_count` | 0 |
 
-## Project Architecture
+Before using the KB with real engineers, run:
 
-```
-Markdown + JSON  ->  IngestionPipeline  ->  Chunks  ->  EmbeddingEncoder
-                                                            |
-                                                            v
-FastAPI / MCP  <-  RetrievalCoordinator  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+1. [Agent E2E Validation](docs/agent_e2e_validation.md) — step-by-step verification
+2. [Beta Checklist](docs/beta_checklist.md) — 10-question trial with pass criteria
+3. [Beta 10-Question Trial Report](docs/archive/beta_test_report_10q.md) — archived first trial result
+4. [Beta 10-Question Retest Plan](docs/archive/beta_retest_10q.md) — archived post-fix retest procedure
 
-RetrievalCoordinator:
-  scoped routing + answer contracts + isolated answer groups
+Current beta status: ready for engineer handoff. The first recorded trial
+passed 9/10 questions. After the ARRAY citation fix, expected-answer checklist
+updates, and paginated `get_document` implementation, the first five priority
+questions were retested and passed; evidence is recorded in
+[docs/archive/10q_retest.csv](docs/archive/10q_retest.csv).
 
-RetrievalPipeline:
-  HybridRetriever (dense + sparse)
-  -> DocumentGraphExpander (optional)
-  -> Reranker (cross-encoder)
-  -> Broad-query coverage selection (optional)
-  -> ParentChildExpander
-  -> BroadConceptAssembler (optional)
-  -> ContextCompressor
-```
-
-**Retrieval behavior notes:**
-
-- Narrow queries keep a small rerank output budget (default top 5).
-- Broad concept queries use an expanded candidate budget and coverage-aware
-  selection to retain content-bearing chunks from different sources and topics.
-- Graph-expanded candidates always participate in reranking so linked
-  documents have a chance to surface.
-- `BroadConceptAssembler` follows related document links at runtime, prioritizes
-  concept hubs and their forward-linked subtopics, adds
-  representative document or section chunks, and removes low-utility image,
-  title-only, and functional-change chunks from broad-answer context.
-- Coverage assembly is a general retrieval strategy; it does not depend on
-  hardcoded source hints or domain-specific exceptions.
-
-### New retrieval configuration options
-
-These keys can be added to `configs/config.yaml` under `retrieval.reranker`:
-
-| Key | Description | Default |
-|-----|-------------|---------|
-| `broad_candidate_top_k` | Candidate budget before coverage selection for broad queries | 40 |
-| `broad_final_top_k` | Final chunk count after coverage selection for broad queries | 14 |
-| `broad_max_sources` | Maximum distinct sources to retain in a broad query result | 8 |
-| `broad_min_sources` | Minimum source-diverse base before topic coverage fill | 3 |
-| `broad_max_chunks_per_source` | Maximum reranked chunks retained per source | 3 |
-
-The `retrieval.broad_context` section controls automatic context assembly. Its
-default budget is 32 discovered sources, 16 final chunks, and about 9000 tokens.
+---
 
 ## Development Commands
 
@@ -410,4 +367,8 @@ uv run -m ate_rag_kb.cli.main status
 
 ## License
 
-MIT
+The application code is released under the MIT License. See [LICENSE](LICENSE).
+
+Third-party ATE vendor documentation, converted documentation, extracted
+assets, model files, and generated vector stores are not included in this
+license. See [THIRD_PARTY.md](THIRD_PARTY.md) for redistribution notes.
