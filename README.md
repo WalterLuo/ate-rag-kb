@@ -1,5 +1,7 @@
 # ATE RAG Knowledge Base
 
+[English](README.md) | [中文](README_CN.md)
+
 > **Your coding agent's long-term memory for ATE platform knowledge.**
 
 Query ATE technical documentation, APIs, error codes, and debug flows directly
@@ -8,7 +10,7 @@ cited answers about timing, patterns, DPS, PMU, and test flows without leaving
 your IDE.
 
 **Built for:** Test engineers using AI coding assistants, teams maintaining ATE
-test programs (TDC, SmarTest, V93000), and anyone with authorized local ATE
+test programs (V93000、J750), and anyone with authorized local ATE
 documentation who needs grounded, cited answers.
 
 ---

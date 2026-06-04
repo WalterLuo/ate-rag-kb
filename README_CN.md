@@ -1,10 +1,12 @@
 # ATE RAG 知识库
 
+[English](README.md) | [中文](README_CN.md)
+
 > **你的编码助手在 ATE 平台上的长期记忆。**
 
 直接在 Claude Code、Cursor、Codex 或其他支持 MCP 的智能体中查询 ATE 技术文档、API、错误代码和调试流程。获取关于时序、pattern、DPS、PMU 和测试流程的可靠、带引用的答案，无需离开 IDE。
 
-**适用人群：** 使用 AI 编码助手的测试工程师、维护 ATE 测试程序的团队（TDC、SmarTest、V93000），以及任何拥有本地授权 ATE 文档并需要 grounded、带引用答案的人。
+**适用人群：** 使用 AI 编码助手的测试工程师、维护 ATE 测试程序的团队（V93000、J750），以及任何拥有本地授权 ATE 文档并需要 grounded、带引用答案的人。
 
 ---
 
