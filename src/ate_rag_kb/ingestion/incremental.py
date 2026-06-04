@@ -149,6 +149,19 @@ class IncrementalIngestion:
     def _save_state(self, state: dict[str, Any]) -> None:
         self.state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
+    def mark_all_files_current(self, markdown_dir: Path) -> None:
+        """Record the current markdown tree as already ingested for this profile."""
+        file_states = {
+            str(md_path.relative_to(markdown_dir)): md_path.stat().st_mtime
+            for md_path in sorted(markdown_dir.rglob("*.md"))
+        }
+        self._save_state(
+            {
+                "_profile": _build_profile(self.config),
+                "files": file_states,
+            }
+        )
+
     def scan_for_changes(
         self,
         markdown_dir: Path,

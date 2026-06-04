@@ -95,9 +95,15 @@ async def _cmd_ingest(args: argparse.Namespace) -> int:
         stats = incremental.run_incremental(markdown_dir, json_dir=json_dir)
         logger.info("Incremental ingestion: %s", stats)
     else:
+        from ate_rag_kb.ingestion.incremental import IncrementalIngestion, _get_state_file
+
         pipeline.vector_store.clear_collection()
         pipeline.rebuild_sparse_vocabulary(markdown_dir)
         total = pipeline.ingest_directory(markdown_dir, json_dir=json_dir)
+        IncrementalIngestion(
+            pipeline,
+            state_file=_get_state_file(config),
+        ).mark_all_files_current(markdown_dir)
         logger.info("Ingested %d chunks", total)
     return 0
 

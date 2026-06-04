@@ -78,6 +78,7 @@ async def test_full_ingest_clears_store_and_rebuilds_sparse_vocab(tmp_path) -> N
     vector_store = MagicMock()
     pipeline = MagicMock(vector_store=vector_store)
     pipeline.ingest_directory.return_value = 3
+    incremental = MagicMock()
 
     with (
         patch("ate_rag_kb.cli.main.get_config", return_value=config),
@@ -91,6 +92,14 @@ async def test_full_ingest_clears_store_and_rebuilds_sparse_vocab(tmp_path) -> N
             "ate_rag_kb.ingestion.pipeline.IngestionPipeline",
             return_value=pipeline,
         ),
+        patch(
+            "ate_rag_kb.ingestion.incremental.IncrementalIngestion",
+            return_value=incremental,
+        ),
+        patch(
+            "ate_rag_kb.ingestion.incremental._get_state_file",
+            return_value=tmp_path / "state.json",
+        ),
     ):
         encoder_cls.return_value.vector_size = 1024
         result = await _cmd_ingest(
@@ -102,3 +111,4 @@ async def test_full_ingest_clears_store_and_rebuilds_sparse_vocab(tmp_path) -> N
     vector_store.clear_collection.assert_called_once_with()
     pipeline.rebuild_sparse_vocabulary.assert_called_once_with(markdown_dir)
     pipeline.ingest_directory.assert_called_once_with(markdown_dir, json_dir=None)
+    incremental.mark_all_files_current.assert_called_once_with(markdown_dir)

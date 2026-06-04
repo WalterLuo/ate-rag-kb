@@ -61,6 +61,8 @@ Switching any of these settings automatically triggers a full re-ingest:
 - Old `data/processed/ingestion_state.json` is preserved as `.json.legacy`
 - New profile-specific state files are created under `data/processed/state_{hash}.json`
 - The collection is cleared before the full rebuild to remove stale points
+- Full ingest records the current profile state after rebuilding, so the next
+  `--incremental` run only processes real file changes.
 
 ### Document Scope and Software Versions
 

@@ -88,15 +88,15 @@ local-mode `./data/qdrant_storage/` to avoid lock conflicts).
 
 ## Model Cache and Offline Mode
 
-The default config allows first-time online model downloads:
+The default config runs in offline/cache-only mode:
 
 ```yaml
 embedding:
   cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
-  local_files_only: false
+  local_files_only: true
 ```
 
-This downloads and reuses:
+Prepare and reuse these cached models:
 
 - `BAAI/bge-m3` for embeddings
 - `BAAI/bge-reranker-v2-m3` for cross-encoder reranking
@@ -113,8 +113,8 @@ Windows PowerShell:
 $env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
 ```
 
-For fully offline engineer deployments, prepare the cache on a networked
-machine, copy it to the target machine, then set:
+For first-time setup, prepare the cache on a networked machine or temporarily
+set `local_files_only: false`, then restore cache-only mode:
 
 ```yaml
 embedding:
@@ -148,6 +148,9 @@ Switching any of these settings automatically triggers a full re-ingest:
 - Old `data/processed/ingestion_state.json` is preserved as `.json.legacy`
 - A new profile-specific state file is created under `data/processed/state_{hash}.json`
 - The collection is cleared before the full rebuild to remove stale points
+- Full ingest records the current profile state after a successful rebuild, so
+  the next `--incremental` run can scan for real changes instead of rebuilding
+  again immediately.
 
 ## Document Scope
 
@@ -342,10 +345,13 @@ Current baseline (50 questions):
 Markdown + JSON  ->  IngestionPipeline  ->  Chunks  ->  EmbeddingEncoder
                                                             |
                                                             v
-FastAPI / MCP  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+FastAPI / MCP  <-  RetrievalCoordinator  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+
+RetrievalCoordinator:
+  scoped routing + answer contracts + isolated answer groups
 
 RetrievalPipeline:
-  HybridRetriever (vector + BM25)
+  HybridRetriever (dense + sparse)
   -> DocumentGraphExpander (optional)
   -> Reranker (cross-encoder)
   -> Broad-query coverage selection (optional)

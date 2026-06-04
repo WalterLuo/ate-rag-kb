@@ -139,6 +139,27 @@ class TestIncrementalIngestion:
             ("catalog", markdown_dir, json_dir),
         ]
 
+    def test_mark_all_files_current_writes_matching_profile(
+        self, markdown_dir: Path, state_file: Path, pipeline: object
+    ) -> None:
+        nested = markdown_dir / "nested"
+        nested.mkdir()
+        first = markdown_dir / "a.md"
+        second = nested / "b.md"
+        ignored = markdown_dir / "ignore.txt"
+        first.write_text("hello")
+        second.write_text("world")
+        ignored.write_text("not markdown")
+        incr = IncrementalIngestion(pipeline, state_file=state_file)
+
+        incr.mark_all_files_current(markdown_dir)
+
+        saved_state = json.loads(state_file.read_text())
+        assert saved_state["_profile"] == _build_profile(pipeline.config)
+        assert set(saved_state["files"]) == {"a.md", "nested/b.md"}
+        assert incr.needs_full_rebuild() is False
+        assert incr.scan_for_changes(markdown_dir) == ([], [], [])
+
     def test_state_is_profile_specific(self, tmp_path: Path) -> None:
         server_config = Config({"vector_store": {"mode": "server", "url": "http://localhost:6333"}})
         local_config = Config({"vector_store": {"mode": "local", "local_path": str(tmp_path / "local")}})

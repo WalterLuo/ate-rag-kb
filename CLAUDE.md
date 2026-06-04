@@ -12,26 +12,28 @@ stores in Qdrant, and exposes retrieval + Q&A via FastAPI and MCP.
 Markdown + JSON  ->  IngestionPipeline  ->  Chunks  ->  EmbeddingEncoder
                                                             |
                                                             v
-FastAPI / MCP  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+FastAPI / MCP  <-  RetrievalCoordinator  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
 ```
 
 FastAPI endpoints:
 - `/search` — basic semantic search
 - `/retrieve` — hybrid + rerank + parent-child + compression
-- `/ask` — retrieval + citations (no LLM synthesis in phase 1)
+- `/ask` — coordinator-backed retrieval + citations for agent synthesis
 - `/related` — parent/sibling/children for a chunk
 - `/document` — all chunks for a source file
 
 MCP tools (stdio transport):
 - `ate_kb.search`, `ate_kb.retrieve`, `ate_kb.ask`
-- `ate_kb.related`, `ate_kb.get_document`, `ate_kb.status`
+- `ate_kb.related`, `ate_kb.get_document`
 
-Current beta status:
-- First recorded 10-question trial: 9/10 pass
-- Q2 ARRAY citation regression: code-level fix and MCP tests added
-- Q1/Q3/Q5 completeness criteria: documented in beta checklists
-- MCP `get_document`: true paged backend path implemented
-- Next validation step: restart agent/MCP server and run `docs/beta_retest_10q.md`
+Current operational status:
+- Multi-platform retrieval coordinator is active for FastAPI and MCP.
+- Current enabled scopes are Teradyne J750 / IG-XL and Advantest V93000 / SMT7.
+- Explicit IG-XL/J750 questions are isolated to `j750/igxl`; explicit SMT7
+  questions are isolated to `v93000/smt7`.
+- Neutral questions search both enabled scopes and return separated answer
+  groups unless routing requires clarification.
+- Live acceptance is `uv run scripts/validate_multi_platform_retrieval.py`.
 
 ## ATE KB Question Policy
 
@@ -39,8 +41,8 @@ Engineers should ask domain questions directly. Agents must choose the retrieval
 strategy without asking the engineer to pick MCP, CLI, grep, or raw files.
 
 When the user asks any technical question about ATE documentation, SmarTest,
-TDC, V93000, pin configuration, timing, levels, patterns, DPS, PMU, test flow,
-tester behavior, command syntax, or API references:
+TDC, V93000, J750, IG-XL, pin configuration, timing, levels, patterns, DPS,
+PMU, test flow, tester behavior, command syntax, or API references:
 
 1. Use MCP tools first.
 2. Prefer `ate_kb.retrieve` for specific technical answers.
@@ -58,6 +60,19 @@ tester behavior, command syntax, or API references:
 Default flow: user question -> `ate_kb.retrieve` or `ate_kb.ask` -> inspect
 `context_package` and citations -> `ate_kb.get_document` if full-document
 context is needed -> synthesize the answer.
+
+Canonical ATE terminology:
+
+| Vendor | Tester platform | Software |
+|---|---|---|
+| Advantest | V93000 | SMT7, SMT8 |
+| Teradyne | J750 | IG-XL |
+
+V93000 and J750 are tester platforms. SMT7, SMT8, and IG-XL are software
+scopes. Do not treat IG-XL as a tester platform or SMT7/SMT8 as separate
+testers. When both J750 / IG-XL and V93000 / SMT7 are enabled, a neutral query
+returns separate scoped groups. When SMT7 and SMT8 are both enabled, a V93000
+query without a software version asks the user to choose SMT7 or SMT8.
 
 ### Broad Concept Answer Policy
 
@@ -103,7 +118,7 @@ discovered as related sources.
 | `src/ate_rag_kb/chunking/` | HierarchicalChunker: markdown -> document/section/subsection/paragraph/code/table/image chunks |
 | `src/ate_rag_kb/embedding/` | EmbeddingEncoder: sentence-transformers wrapper (bge-m3) |
 | `src/ate_rag_kb/ingestion/` | IngestionPipeline + IncrementalIngestion (mtime-based change detection) |
-| `src/ate_rag_kb/retrieval/` | HybridRetriever (vector + BM25), Reranker (cross-encoder), ParentChildExpander, ContextCompressor |
+| `src/ate_rag_kb/retrieval/` | RetrievalCoordinator, scoped routing, HybridRetriever (dense + sparse), graph expansion, reranking, parent-child enrichment, compression |
 | `src/ate_rag_kb/vector_store/` | QdrantVectorStore wrapper + schema/index setup |
 | `src/ate_rag_kb/api/` | FastAPI app, routes, Pydantic models |
 | `src/ate_rag_kb/mcp/` | MCP server (stdio), tool handlers, context builder |
@@ -148,31 +163,44 @@ uv run -m ate_rag_kb.cli.main status
 ## Key Flows
 
 ### Ingestion Flow
-1. `cli/main.py _cmd_ingest` -> `IncrementalIngestion.run_incremental`
-2. Scan for new/modified `.md` files (compares mtime against `data/processed/ingestion_state.json`)
-3. For each file: `_chunk_document` -> `HierarchicalChunker.chunk`
-4. `_embed_and_upsert` -> `EmbeddingEncoder.encode` -> `QdrantVectorStore.upsert_chunks`
-5. Batch size defaults to 1000 chunks; memory errors trigger recursive halving
+1. `cli/main.py _cmd_ingest` builds `EmbeddingEncoder`, `QdrantVectorStore`, and
+   `IngestionPipeline`.
+2. Full ingest clears the collection, rebuilds sparse vocabulary, ingests all
+   markdown, rebuilds graph/catalog artifacts, and records the current
+   profile-specific state file.
+3. Incremental ingest uses `IncrementalIngestion.run_incremental`; state files
+   live under `data/processed/state_{profile_hash}.json`.
+4. The profile hash covers backend mode, collection, embedding model, chunking
+   config, document scopes, and ingestion schema version.
+5. For changed files: `_chunk_document` -> `HierarchicalChunker.chunk` ->
+   `_embed_and_upsert` -> `EmbeddingEncoder.encode` ->
+   `QdrantVectorStore.upsert_chunks`.
+6. Batch size defaults to 1000 chunks; memory errors trigger recursive halving.
 
 ### Retrieval Flow
 
-1. `RetrievalPipeline.retrieve` (async)
-2. `HybridRetriever.retrieve` (sync, wrapped in `asyncio.to_thread`)
+1. `RetrievalCoordinator.retrieve` resolves scopes and answer mode.
+2. Each resolved scope calls `RetrievalPipeline.retrieve_enriched` with scoped
+   filters and an enhanced query.
+3. `HybridRetriever.retrieve` (sync, wrapped in `asyncio.to_thread`)
    - Vector search via `QdrantVectorStore.search` (top 20)
-   - Sparse vector search (corpus-wide) if available
+   - Sparse vector search if available
    - Reciprocal Rank Fusion (dense + sparse)
    - Legacy BM25 fallback when sparse is unavailable
-3. Optional: `DocumentGraphExpander.expand`
+4. Optional: `DocumentGraphExpander.expand`
    - Follows internal document links with bounded hops
    - Narrow queries: 1 hop, limited budget
    - Broad concept queries: up to 2 hops, expanded budget
-4. Optional: `Reranker.rerank` (cross-encoder)
+5. Optional: `Reranker.rerank` (cross-encoder)
    - **Graph-expanded candidates always participate in reranking**
+   - Exact title/API matches can be preserved after rerank
    - Narrow queries: retain top 5 (default)
    - Broad concept queries: use independent candidate budget and
      source-diverse selection to preserve coverage across multiple documents
-5. Optional: `ParentChildExpander.expand` (batched `get_by_ids`)
-6. Optional: `ContextCompressor.compress` (dedup, merge adjacent, token cap)
+6. Optional: `ParentChildExpander.expand` (batched `get_by_ids`)
+7. Optional: `ContextCompressor.compress` (dedup, merge adjacent, token cap)
+8. Coordinator returns isolated groups, citations, processing diagnostics, and
+   an `answer_contract` for agent synthesis.
 
 **Query-type behavior:**
 
@@ -183,27 +211,20 @@ uv run -m ate_rag_kb.cli.main status
 | Source diversity | Not applied | Applied (`broad_max_sources`) |
 | Final top-k | Default | `broad_final_top_k` |
 
-**Phase boundaries:**
-
-- **Phase 1** (`retrieve` / `ask` without planner): Provides complete,
-  traceable grounded context. The pipeline returns raw chunks + citations
-  for agent synthesis. No LLM synthesis occurs in this phase.
-- **Phase 2** (planner-driven `retrieve_enriched` / `search_enriched`): Handles
-  dynamic retrieval planning, automatic pagination, and answer organization.
-  The planner detects broad concepts, applies ecosystem filters, and boosts
-  title matches without requiring the engineer to specify retrieval strategy.
-
 ### /ask Flow
-1. `routes.ask` -> `retriever.search` (NOT retrieve; no rerank/expand by default)
-2. Convert chunks to `ChunkResult`
-3. Build `Citation` list from chunks
-4. Phase 1: NO LLM synthesis. Returns raw chunks + citations for agent synthesis.
+1. `routes.ask` uses `RetrievalCoordinator` when available.
+2. Coordinator routes the query to one or more scopes.
+3. Each scope runs the enriched retrieval path with dense + sparse search,
+   graph expansion, reranking, and context compression.
+4. The response includes citations, `source_md`, scoped processing diagnostics,
+   and an `answer_contract`. The agent synthesizes the final natural-language
+   answer from that grounded context.
 
 ### MCP Flow
 1. Agent sends JSON-RPC request via stdio
 2. `mcp/server.py` dispatches to `McpToolHandler`
-3. Handler calls `RetrievalPipeline` methods
-4. Results formatted by `ContextBuilder` into structured JSON
+3. Handler delegates `search`, `retrieve`, and `ask` to `RetrievalCoordinator`
+4. Results are grouped by scope and formatted into structured JSON
 5. Returned to agent as `TextContent`
 
 `ate_kb.get_document` should call `RetrievalPipeline.get_document_page()` with
@@ -271,22 +292,24 @@ When modifying code, prioritize:
 5. **Update eval dataset if behavior changes** — if chunking/retrieval logic changes,
    re-run `scripts/run_eval.py` and update golden expectations if the change is
    intentional.
-6. **Do not break the incremental ingestion contract** — chunk IDs must remain
-   deterministic for the same input; state file format changes need migration.
-7. **MCP changes must not break FastAPI** — both share `RetrievalPipeline`. Do not
-   add MCP-specific logic into the pipeline; keep it in `mcp/tools.py`.
+6. **Do not break the incremental ingestion contract** — full ingest must record
+   the current profile state; incremental ingest must only reuse state when the
+   profile metadata matches the current config.
+7. **MCP changes must not break FastAPI** — both share `RetrievalCoordinator`
+   and `RetrievalPipeline`. Keep transport-specific formatting in API/MCP
+   handlers, not in the retrieval core.
 
 ## Protected Directories
 
 - `data/raw/` — Original documents. NEVER modify in-place; treat as immutable source.
 - `data/qdrant_storage/` — Local Qdrant data. Do not manually delete while server is running.
-- `data/processed/ingestion_state.json` — Incremental ingestion state. Do not edit manually.
+- `data/processed/state_*.json` — Profile-specific incremental ingestion state. Do not edit manually unless explicitly repairing a verified rebuilt collection.
 - `embeddings/cache/` — Downloaded transformer models. Large; do not commit.
 - `eval/v1/` — Evaluation datasets. Version-controlled; do not overwrite without bumping version.
 
 ## Current Priority Tasks
 
-1. **Run beta retest** — restart the agent/MCP server and execute `docs/beta_retest_10q.md`
-2. **Record retest outcome** — update `docs/beta_test_report_10q.md` from 9/10 to the new result
-3. **Expand eval dataset** — add the real 10 beta questions after the retest stabilizes
-4. **Add CI gate** — pytest -> ruff -> retrieval eval gate
+1. **Keep multi-platform acceptance green** — run `uv run scripts/validate_multi_platform_retrieval.py` after ingestion or routing changes.
+2. **Preserve scope isolation** — IG-XL/J750 answers must not cite SMT7 sources, and SMT7/V93000 answers must not cite IG-XL sources.
+3. **Prepare SMT8 enablement** — add `advantest / v93000 / smt8` only after SMT8 raw docs are available and a full ingest has been run.
+4. **Add CI gate** — pytest -> ruff -> multi-platform retrieval validator.

@@ -81,15 +81,15 @@ Qdrant 数据持久化到 `./data/qdrant_server/`（与旧的 local mode
 
 ## 模型缓存与离线模式
 
-默认配置允许首次联网下载模型：
+默认配置使用离线/缓存优先模式：
 
 ```yaml
 embedding:
   cache_dir: "${ATE_KB_MODEL_CACHE:-./embeddings/cache}"
-  local_files_only: false
+  local_files_only: true
 ```
 
-系统会下载并复用：
+请提前准备并复用以下缓存模型：
 
 - `BAAI/bge-m3`：用于 embedding
 - `BAAI/bge-reranker-v2-m3`：用于 cross-encoder rerank
@@ -106,8 +106,8 @@ Windows PowerShell：
 $env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
 ```
 
-如果是完全离线的工程师部署，先在能联网的机器准备好模型缓存，再复制到目标机器，
-并设置：
+首次部署时，可先在能联网的机器准备模型缓存，或临时设置
+`local_files_only: false` 下载模型，然后恢复为缓存优先模式：
 
 ```yaml
 embedding:
@@ -138,6 +138,8 @@ vector_store:
 - 旧的 `data/processed/ingestion_state.json` 会被保留为 `.json.legacy`
 - 新的 profile 专属状态文件会创建在 `data/processed/state_{hash}.json`
 - 重建前会自动清空 collection，防止旧数据残留
+- 全量 ingest 成功后会记录当前 profile state，因此下一次 `--incremental`
+  会扫描真实变更，而不是立刻再次全量重建。
 
 ## 文档范围
 
@@ -322,10 +324,13 @@ uv run python scripts/run_eval.py
 Markdown + JSON  ->  IngestionPipeline  ->  Chunks  ->  EmbeddingEncoder
                                                             |
                                                             v
-FastAPI / MCP  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+FastAPI / MCP  <-  RetrievalCoordinator  <-  RetrievalPipeline  <-  QdrantVectorStore  <-  Vectors
+
+RetrievalCoordinator:
+  scoped routing + answer contracts + isolated answer groups
 
 RetrievalPipeline:
-  HybridRetriever (vector + BM25)
+  HybridRetriever (dense + sparse)
   -> DocumentGraphExpander (可选)
   -> Reranker (cross-encoder)
   -> Broad-query coverage selection (可选)
