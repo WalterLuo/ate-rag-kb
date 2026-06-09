@@ -10,7 +10,65 @@
 
 ---
 
+## 前置条件 — 安装所需软件
+
+开始之前，请先安装以下三个工具。本知识库在 **macOS 和 Windows 上都能运行**。
+其余的一切（Python 本身、Qdrant 数据库、Embedding 模型）都由 `uv` 和 Docker
+自动处理，你**无需**单独安装。
+
+| 软件 | 用途 | 下载地址 | 安装后验证 |
+|------|------|----------|------------|
+| **Git** | 克隆本仓库 | [git-scm.com/downloads](https://git-scm.com/downloads) | `git --version` |
+| **uv** | 自动安装 Python 3.10+ 及所有依赖 | [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) | `uv --version` |
+| **Docker Desktop** | 运行 Qdrant 向量数据库（默认的 server 模式） | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) | `docker --version` |
+
+> 项目要求 Python 3.10+，但你**不需要**自己下载——`uv` 会自动安装正确的版本。
+> 如果你仍想手动安装，可从 [python.org/downloads](https://www.python.org/downloads/) 获取。
+
+### 一行命令安装
+
+**macOS** — 使用 [Homebrew](https://brew.sh)（如果还没有 Homebrew，请先安装它）：
+
+```bash
+brew install git
+brew install uv
+brew install --cask docker   # 然后从"应用程序"中启动一次 Docker Desktop
+```
+
+**Windows** — 在 **PowerShell** 中使用
+[winget](https://learn.microsoft.com/windows/package-manager/winget/)（Windows 10/11 自带）：
+
+```powershell
+winget install Git.Git
+winget install astral-sh.uv
+winget install Docker.DockerDesktop   # 然后从"开始"菜单启动一次 Docker Desktop
+```
+
+安装完成后，打开一个**新的**终端窗口，确认三个命令都能响应：
+
+```bash
+git --version
+uv --version
+docker --version
+```
+
+> **Windows 用户：** 本指南中的所有命令请都在 **PowerShell** 中运行（不要用旧的
+> `cmd` 命令提示符）。在执行任何 `docker compose` 命令前，确保 Docker Desktop
+> 已经在运行（系统托盘里有鲸鱼图标）。
+
+---
+
 ## 快速开始（15–30 分钟）
+
+> **第 0 步 — 把项目下载到本机。** 选一个你记得住的目录（用户主目录即可），
+> 然后克隆并进入：
+>
+> ```bash
+> git clone https://github.com/WalterLuo/ate-rag-kb.git
+> cd ate-rag-kb
+> ```
+>
+> 下方所有命令和路径都假设你正处在这个 **`ate-rag-kb` 文件夹内**（即"项目根目录"）。
 
 ```bash
 # 1. 安装依赖
@@ -56,6 +114,41 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 > **Server mode 为默认配置。** 默认情况下 KB 连接到 `http://localhost:6333`
 >（Qdrant 服务器）。Local file mode（`./data/qdrant_storage/`）仅供单进程开发调试使用，
 > 多进程同时访问会触发 `portalocker.AlreadyLocked` 错误。
+
+---
+
+## 所有文件都放在哪里？（macOS 与 Windows）
+
+本指南中所有以 `./data/...` 或 `./embeddings/...` 开头的路径，都是**相对于项目
+根目录**的——也就是你在第 0 步克隆下来的那个 `ate-rag-kb` 文件夹。除非你主动
+修改配置，否则不会有任何文件写到这个文件夹之外。macOS 和 Windows 行为一致。
+
+| 内容 | 路径（位于项目根目录下） | 由谁创建 | 是否提交 git |
+|------|--------------------------|----------|--------------|
+| 你的源 Markdown 文档 | `data/raw/markdown/` | **你**（手动放入） | 否 |
+| 可选 JSON 元数据 | `data/raw/json/` | 你（可选） | 否 |
+| 可选图片 | `data/raw/assets/` | 你（可选） | 否 |
+| **Qdrant 数据 — server 模式（默认）** | `data/qdrant_server/` | Docker 容器 | 否 |
+| Qdrant 数据 — 仅 local 模式 | `data/qdrant_storage/` | local 模式下的 `ingest` | 否 |
+| 导入状态 | `data/processed/` | `ingest` 命令 | 否 |
+| Embedding 模型缓存（约 6.4 GB） | `embeddings/cache/` | 你（下载）或 Hugging Face | 否 |
+
+**具体示例** — 如果你把项目克隆到了用户主目录下：
+
+| 操作系统 | 项目根目录 | 你的 Markdown 文件放在 |
+|----------|------------|------------------------|
+| **macOS** | `/Users/you/ate-rag-kb` | `/Users/you/ate-rag-kb/data/raw/markdown/v93000/smt7/` |
+| **Windows** | `C:\Users\you\ate-rag-kb` | `C:\Users\you\ate-rag-kb\data\raw\markdown\v93000\smt7\` |
+
+> **两个 Qdrant 文件夹 — 不要搞混：**
+>
+> - **`data/qdrant_server/`** 用于 **server 模式（默认）**。它是 Qdrant 容器
+>   写入的 Docker 卷。用 `docker compose up -d qdrant` 启动。**这才是你需要的那个。**
+> - **`data/qdrant_storage/`** 仅在你切换到 local 模式时使用
+>   （`configs/config.yaml` 中的 `vector_store.mode: local`）。它是一个内嵌
+>   数据库、不需要 Docker，仅供单进程调试。
+>
+> 除非有特殊需要，请始终使用 server 模式（`data/qdrant_server/`）。
 
 ---
 

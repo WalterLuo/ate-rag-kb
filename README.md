@@ -15,7 +15,69 @@ documentation who needs grounded, cited answers.
 
 ---
 
+## Prerequisites — Install Required Software
+
+Before you start, install these three tools. The KB runs on **both macOS and
+Windows**. Everything else (Python itself, the Qdrant database, the embedding
+models) is handled for you by `uv` and Docker — you do **not** install them
+separately.
+
+| Software | Why it's needed | Download | Verify after install |
+|----------|-----------------|----------|----------------------|
+| **Git** | Clone this repository | [git-scm.com/downloads](https://git-scm.com/downloads) | `git --version` |
+| **uv** | Installs Python 3.10+ and all dependencies automatically | [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) | `uv --version` |
+| **Docker Desktop** | Runs the Qdrant vector database (server mode, the default) | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) | `docker --version` |
+
+> Python 3.10+ is required, but you do **not** download it yourself — `uv`
+> installs the correct version automatically. If you prefer a manual install
+> anyway, get it from [python.org/downloads](https://www.python.org/downloads/).
+
+### One-line install commands
+
+**macOS** — using [Homebrew](https://brew.sh) (install Homebrew first if you
+don't have it):
+
+```bash
+brew install git
+brew install uv
+brew install --cask docker   # then launch Docker Desktop once from Applications
+```
+
+**Windows** — using [winget](https://learn.microsoft.com/windows/package-manager/winget/)
+(built into Windows 10/11), in **PowerShell**:
+
+```powershell
+winget install Git.Git
+winget install astral-sh.uv
+winget install Docker.DockerDesktop   # then launch Docker Desktop once from the Start menu
+```
+
+After installing, open a **new** terminal window and confirm all three respond:
+
+```bash
+git --version
+uv --version
+docker --version
+```
+
+> **Windows users:** Run every command in this guide in **PowerShell** (not the
+> old `cmd` prompt). Make sure Docker Desktop is running (whale icon in the
+> system tray) before any `docker compose` command.
+
+---
+
 ## Quick Start (15–30 min)
+
+> **Step 0 — Get the project onto your machine.** Pick a folder you'll remember
+> (your home directory is fine), then clone and enter it:
+>
+> ```bash
+> git clone https://github.com/WalterLuo/ate-rag-kb.git
+> cd ate-rag-kb
+> ```
+>
+> Every command and path below assumes you are **inside this `ate-rag-kb`
+> folder** (the "project root").
 
 ```bash
 # 1. Install dependencies
@@ -63,6 +125,43 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 > (`./data/qdrant_storage/`) is available for single-process development only
 > and will trigger `portalocker.AlreadyLocked` if multiple processes access it
 > simultaneously.
+
+---
+
+## Where Do All the Files Live? (macOS & Windows)
+
+Every path in this guide that starts with `./data/...` or `./embeddings/...` is
+**relative to the project root** — the `ate-rag-kb` folder you cloned in Step 0.
+Nothing is written outside this folder unless you deliberately change the config.
+This is the same on macOS and Windows.
+
+| What | Path (under the project root) | Created by | Commit to git? |
+|------|-------------------------------|------------|----------------|
+| Your source Markdown docs | `data/raw/markdown/` | **You** (copy files in) | No |
+| Optional JSON metadata | `data/raw/json/` | You (optional) | No |
+| Optional images | `data/raw/assets/` | You (optional) | No |
+| **Qdrant data — server mode (default)** | `data/qdrant_server/` | Docker container | No |
+| Qdrant data — local mode only | `data/qdrant_storage/` | `ingest` in local mode | No |
+| Ingestion state | `data/processed/` | `ingest` command | No |
+| Embedding model cache (~6.4 GB) | `embeddings/cache/` | You (download) or Hugging Face | No |
+
+**Concrete examples** — if you cloned the project into your home folder:
+
+| OS | Project root | Your Markdown files go in |
+|----|--------------|---------------------------|
+| **macOS** | `/Users/you/ate-rag-kb` | `/Users/you/ate-rag-kb/data/raw/markdown/v93000/smt7/` |
+| **Windows** | `C:\Users\you\ate-rag-kb` | `C:\Users\you\ate-rag-kb\data\raw\markdown\v93000\smt7\` |
+
+> **Two Qdrant folders — don't mix them up:**
+>
+> - **`data/qdrant_server/`** is used by **server mode (the default)**. It is
+>   the Docker volume that the Qdrant container writes to. You start it with
+>   `docker compose up -d qdrant`. **This is the one you want.**
+> - **`data/qdrant_storage/`** is used **only** if you switch to local mode
+>   (`vector_store.mode: local` in `configs/config.yaml`). It is an embedded
+>   database with no Docker, for single-process debugging only.
+>
+> Unless you have a specific reason, stay on server mode (`data/qdrant_server/`).
 
 ---
 
