@@ -22,12 +22,18 @@ Before installing into any harness, ensure the project itself is ready:
 
 ## Quick Setup (Recommended)
 
-Run the automatic installer to configure all detected harnesses and install the
-managed ATE KB Routing policy:
+The automatic installer configures the harnesses that read external MCP
+config files — **Claude Code, Cursor, and Codex** — and installs the managed
+ATE KB Routing policy:
 
 ```bash
 uv run python scripts/install_mcp.py --install-agent-policy
 ```
+
+> Gemini CLI and OpenCode are **not** handled by this script. They wire up MCP
+> through their own native mechanisms instead: Gemini reads `mcpServers` from
+> `gemini-extension.json` on `gemini extensions install`, and OpenCode installs
+> via its plugin manager (see `.opencode/INSTALL.md`).
 
 Dry-run first to see what will change:
 
@@ -192,9 +198,12 @@ gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git
 gemini extensions update ate-rag-kb
 ```
 
-Gemini CLI reads `gemini-extension.json` at the repo root, which points to
-`GEMINI.md` as the context file. No additional MCP configuration is needed —
-Gemini uses the context instructions to know when to invoke tools.
+Gemini CLI reads `gemini-extension.json` at the repo root. The manifest
+declares the `ate-kb` MCP server (launched with `uv run ... mcp`) under
+`mcpServers` and points to `GEMINI.md` as the context file. Paths use the
+`${extensionPath}` variable so the extension stays portable across machines.
+Installing the extension wires up the MCP server automatically; no manual
+`mcpServers` editing is required.
 
 ---
 
@@ -253,7 +262,7 @@ droid plugin install ate-rag-kb@ate-rag-kb
 | Codex | `.codex-plugin/plugin.json` |
 | Gemini CLI | `gemini-extension.json`, `GEMINI.md` |
 | OpenCode | `.opencode/INSTALL.md` |
-| All MCP tools | `scripts/install_mcp.py` |
+| Claude / Cursor / Codex MCP installer | `scripts/install_mcp.py` |
 
 ## Troubleshooting
 

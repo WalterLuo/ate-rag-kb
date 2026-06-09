@@ -1,0 +1,25 @@
+{
+  "name": "ate-rag-kb",
+  "description": "ATE Test Engineer Agentic RAG Knowledge Base for V93000/SMT7 and J750/IG-XL",
+  "version": "0.1.0",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "ate-kb": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "${extensionPath}",
+        "-m",
+        "ate_rag_kb.cli.main",
+        "mcp"
+      ],
+      "cwd": "${extensionPath}",
+      "env": {
+        "CONFIG_PATH": "${extensionPath}${/}configs${/}config.yaml",
+        "ATE_KB_QUERY_DEVICE": "cpu",
+        "ATE_KB_RERANKER_DEVICE": "cpu"
+      }
+    }
+  }
+}

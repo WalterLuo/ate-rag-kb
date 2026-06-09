@@ -127,6 +127,10 @@ def build_mcp_server_config(project_root: Path) -> dict[str, Any]:
         ],
         "env": {
             "CONFIG_PATH": str(resolved_root / "configs" / "config.yaml"),
+            # Pin retrieval to CPU so MCP startup never contends for MPS/CUDA
+            # memory (large bge-m3 batches can OOM on GPU). See CLAUDE.md pitfalls.
+            "ATE_KB_QUERY_DEVICE": "cpu",
+            "ATE_KB_RERANKER_DEVICE": "cpu",
         },
     }
 

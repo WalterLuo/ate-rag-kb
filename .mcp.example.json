@@ -11,7 +11,9 @@
         "mcp"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_QUERY_DEVICE": "cpu",
+        "ATE_KB_RERANKER_DEVICE": "cpu"
       }
     }
   }
