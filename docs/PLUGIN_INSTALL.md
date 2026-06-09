@@ -10,7 +10,7 @@ Before installing into any harness, ensure the project itself is ready:
 1. **Python 3.10+** with [`uv`](https://docs.astral.sh/uv/) installed
 2. **Clone the repo** and install dependencies:
    ```bash
-   git clone https://github.com/walter-luo/ate-rag-kb.git
+   git clone https://github.com/WalterLuo/ate-rag-kb.git
    cd ate-rag-kb
    uv sync
    ```
@@ -65,14 +65,14 @@ This is not recommended for Codex projectless sessions because the repository
 **Marketplace install (recommended):**
 
 ```bash
-/plugin marketplace add walter-luo/ate-rag-kb-marketplace
+/plugin marketplace add WalterLuo/ate-rag-kb-marketplace
 /plugin install ate-rag-kb@ate-rag-kb-marketplace
 ```
 
 **Or install from this repo directly:**
 
 ```bash
-/plugin install ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git
+/plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git
 ```
 
 **MCP Configuration:**
@@ -183,7 +183,7 @@ uv run python scripts/validate_agent_routing_policy.py
 **Install the extension:**
 
 ```bash
-gemini extensions install https://github.com/walter-luo/ate-rag-kb.git
+gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git
 ```
 
 **Update later:**
@@ -206,7 +206,7 @@ Add to your `opencode.json` (global or project-level):
 
 ```json
 {
-  "plugin": ["ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git"]
+  "plugin": ["ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git"]
 }
 ```
 
@@ -219,7 +219,7 @@ Restart OpenCode. See `.opencode/INSTALL.md` for detailed instructions.
 **Register the marketplace:**
 
 ```bash
-copilot plugin marketplace add walter-luo/ate-rag-kb-marketplace
+copilot plugin marketplace add WalterLuo/ate-rag-kb-marketplace
 ```
 
 **Install the plugin:**
@@ -238,7 +238,7 @@ Copilot Chat in VS Code can also use MCP servers via
 **Register the marketplace:**
 
 ```bash
-droid plugin marketplace add https://github.com/walter-luo/ate-rag-kb
+droid plugin marketplace add https://github.com/WalterLuo/ate-rag-kb
 droid plugin install ate-rag-kb@ate-rag-kb
 ```
 

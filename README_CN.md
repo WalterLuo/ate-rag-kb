@@ -281,11 +281,11 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 
 | 工具 | 安装命令 |
 |---------|-----------------|
-| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git` |
+| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git` |
 | **Cursor** | `/add-plugin ate-rag-kb` |
 | **Codex** | `/plugins` → 搜索 "ate-rag-kb" |
-| **Gemini CLI** | `gemini extensions install https://github.com/walter-luo/ate-rag-kb.git` |
-| **OpenCode** | 在 `opencode.json` 的 plugins 中添加 `"ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git"` |
+| **Gemini CLI** | `gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git` |
+| **OpenCode** | 在 `opencode.json` 的 plugins 中添加 `"ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git"` |
 | **Copilot CLI** | `copilot plugin install ate-rag-kb@ate-rag-kb-marketplace` |
 
 详细的各平台说明、故障排查和架构说明请参阅 [docs/PLUGIN_INSTALL_CN.md](docs/PLUGIN_INSTALL_CN.md)。

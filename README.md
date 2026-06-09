@@ -304,11 +304,11 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 
 | Harness | Install Command |
 |---------|-----------------|
-| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git` |
+| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git` |
 | **Cursor** | `/add-plugin ate-rag-kb` |
 | **Codex** | `/plugins` → search "ate-rag-kb" |
-| **Gemini CLI** | `gemini extensions install https://github.com/walter-luo/ate-rag-kb.git` |
-| **OpenCode** | Add `"ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git"` to `opencode.json` plugins |
+| **Gemini CLI** | `gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git` |
+| **OpenCode** | Add `"ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git"` to `opencode.json` plugins |
 | **Copilot CLI** | `copilot plugin install ate-rag-kb@ate-rag-kb-marketplace` |
 
 For detailed per-harness instructions, troubleshooting, and architecture notes,

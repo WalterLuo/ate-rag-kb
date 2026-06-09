@@ -5,10 +5,10 @@
   "author": {
     "name": "Walter Luo",
     "email": "",
-    "url": "https://github.com/walter-luo"
+    "url": "https://github.com/WalterLuo"
   },
-  "homepage": "https://github.com/walter-luo/ate-rag-kb",
-  "repository": "https://github.com/walter-luo/ate-rag-kb",
+  "homepage": "https://github.com/WalterLuo/ate-rag-kb",
+  "repository": "https://github.com/WalterLuo/ate-rag-kb",
   "license": "MIT",
   "keywords": [
     "ate",
@@ -36,6 +36,6 @@
     "capabilities": [
       "Read"
     ],
-    "websiteURL": "https://github.com/walter-luo/ate-rag-kb"
+    "websiteURL": "https://github.com/WalterLuo/ate-rag-kb"
   }
 }

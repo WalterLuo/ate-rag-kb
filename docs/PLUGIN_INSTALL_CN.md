@@ -9,7 +9,7 @@
 1. **Python 3.10+** 并安装 [`uv`](https://docs.astral.sh/uv/)
 2. **克隆仓库**并安装依赖：
    ```bash
-   git clone https://github.com/walter-luo/ate-rag-kb.git
+   git clone https://github.com/WalterLuo/ate-rag-kb.git
    cd ate-rag-kb
    uv sync
    ```
@@ -57,14 +57,14 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 **通过 Marketplace 安装（推荐）：**
 
 ```bash
-/plugin marketplace add walter-luo/ate-rag-kb-marketplace
+/plugin marketplace add WalterLuo/ate-rag-kb-marketplace
 /plugin install ate-rag-kb@ate-rag-kb-marketplace
 ```
 
 **或直接从本仓库安装：**
 
 ```bash
-/plugin install ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git
+/plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git
 ```
 
 **MCP 配置：**
@@ -173,7 +173,7 @@ uv run python scripts/validate_agent_routing_policy.py
 **安装扩展：**
 
 ```bash
-gemini extensions install https://github.com/walter-luo/ate-rag-kb.git
+gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git
 ```
 
 **后续更新：**
@@ -194,7 +194,7 @@ Gemini CLI 读取仓库根目录的 `gemini-extension.json`，该文件指向 `G
 
 ```json
 {
-  "plugin": ["ate-rag-kb@git+https://github.com/walter-luo/ate-rag-kb.git"]
+  "plugin": ["ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git"]
 }
 ```
 
@@ -207,7 +207,7 @@ Gemini CLI 读取仓库根目录的 `gemini-extension.json`，该文件指向 `G
 **注册 Marketplace：**
 
 ```bash
-copilot plugin marketplace add walter-luo/ate-rag-kb-marketplace
+copilot plugin marketplace add WalterLuo/ate-rag-kb-marketplace
 ```
 
 **安装插件：**
@@ -225,7 +225,7 @@ VS Code 中的 Copilot Chat 也可以通过 `~/.vscode/mcp.json` 或工作区设
 **注册 Marketplace：**
 
 ```bash
-droid plugin marketplace add https://github.com/walter-luo/ate-rag-kb
+droid plugin marketplace add https://github.com/WalterLuo/ate-rag-kb
 droid plugin install ate-rag-kb@ate-rag-kb
 ```
 
