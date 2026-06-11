@@ -68,51 +68,90 @@ docker --version
 
 ## Quick Start (15–30 min)
 
-> **Step 0 — Get the project onto your machine.** Pick a folder you'll remember
-> (your home directory is fine), then clone and enter it:
->
-> ```bash
-> git clone https://github.com/WalterLuo/ate-rag-kb.git
-> cd ate-rag-kb
-> ```
->
-> Every command and path below assumes you are **inside this `ate-rag-kb`
-> folder** (the "project root").
+Every command and path below assumes you are **inside the `ate-rag-kb`
+folder** (the "project root").
+
+### 1. Clone the repository
+
+Pick a folder you'll remember (your home directory is fine):
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/WalterLuo/ate-rag-kb.git
+cd ate-rag-kb
+```
+
+### 2. Install dependencies
+
+```bash
 uv sync
+```
 
-# 2. Start Qdrant server
+### 3. Start Qdrant server
+
+```bash
 docker compose up -d qdrant
+```
 
-# 3. Download embedding models
-#    Option A: use the pre-packaged cache (~6.4 GB)
-#    Download from PikPak and unzip into the project root:
-#    https://mypikpak.com/s/VOuGT6UlblOdQSw2ZNEP9F12o2
-#    Option B: let Hugging Face download on first use
-#    (temporarily set local_files_only: false in configs/config.yaml)
+### 4. Download embedding models
+
+Option A: use the pre-packaged cache (~6.4 GB). Download from
+[PikPak](https://mypikpak.com/s/VOuGT6UlblOdQSw2ZNEP9F12o2) and unzip into
+the project root.
+
+Option B: let Hugging Face download on first use (temporarily set
+`local_files_only: false` in `configs/config.yaml`).
+
+Option C: use a cloud API provider (e.g., SiliconFlow) for GPU-accelerated
+inference without downloading models locally. Set the API key and update
+`configs/config.yaml` — see the [Cloud API for Embedding and
+Reranking](#cloud-api-for-embedding-and-reranking) section for details.
+
+```bash
 uv run python scripts/verify_models.py
+```
 
-# 4. Prepare local authorized Markdown documents
+### 5. Prepare local authorized Markdown documents
+
+```bash
 mkdir -p data/raw/markdown/v93000/smt7
-# Copy or generate your own authorized Markdown files into data/raw/markdown/
+```
 
-# 5. Ingest documents (first run is full; subsequent runs use --incremental)
+Copy or generate your own authorized Markdown files into `data/raw/markdown/`.
+
+### 6. Ingest documents
+
+First run is full; subsequent runs use `--incremental`.
+
+```bash
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
+```
 
-# 6. Configure your agent to use the MCP server and ATE KB routing policy
+### 7. Configure your agent
+
+```bash
 uv run python scripts/install_mcp.py --install-agent-policy
-# Or see "Agent Integration" below for manual configuration.
+```
 
-# 7. Validate plugin/routing configuration, then restart Codex / Claude Code / Cursor
+Or see [Agent Integration](#agent-integration) below for manual configuration.
+
+### 8. Validate and restart
+
+```bash
 uv run python scripts/validate_plugin_install.py
 uv run python scripts/validate_agent_routing_policy.py
+```
 
-# 8. Start the MCP server (for agent integration)
+Then restart Codex / Claude Code / Cursor.
+
+### 9. Start the MCP server (for agent integration)
+
+```bash
 uv run -m ate_rag_kb.cli.main mcp
+```
 
-# 9. Or start the HTTP API (for direct access)
+Or start the HTTP API (for direct access):
+
+```bash
 uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 ```
 
@@ -124,41 +163,6 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 > `http://localhost:6333` (Qdrant server started by Docker). Local file mode
 > (`./data/qdrant_storage/`) is deprecated and unsupported — it raises a
 > RuntimeError at startup.
-
----
-
-## Where Do All the Files Live? (macOS & Windows)
-
-Every path in this guide that starts with `./data/...` or `./embeddings/...` is
-**relative to the project root** — the `ate-rag-kb` folder you cloned in Step 0.
-Nothing is written outside this folder unless you deliberately change the config.
-This is the same on macOS and Windows.
-
-| What | Path (under the project root) | Created by | Commit to git? |
-|------|-------------------------------|------------|----------------|
-| Your source Markdown docs | `data/raw/markdown/` | **You** (copy files in) | No |
-| Optional JSON metadata | `data/raw/json/` | You (optional) | No |
-| Optional images | `data/raw/assets/` | You (optional) | No |
-| **Qdrant data — server mode (default)** | `data/qdrant_server/` | Docker container | No |
-| Ingestion state | `data/processed/` | `ingest` command | No |
-| Embedding model cache (~6.4 GB) | `embeddings/cache/` | You (download) or Hugging Face | No |
-
-**Concrete examples** — if you cloned the project into your home folder:
-
-| OS | Project root | Your Markdown files go in |
-|----|--------------|---------------------------|
-| **macOS** | `/Users/you/ate-rag-kb` | `/Users/you/ate-rag-kb/data/raw/markdown/v93000/smt7/` |
-| **Windows** | `C:\Users\you\ate-rag-kb` | `C:\Users\you\ate-rag-kb\data\raw\markdown\v93000\smt7\` |
-
-> **Qdrant data is runtime state, not a distribution artifact:**
->
-> - **`data/qdrant_server/`** is the Docker volume that the Qdrant container
->   writes to. Start it with `docker compose up -d qdrant`.
-> - To transfer or back up your vector data, use **Qdrant snapshots** instead
->   of copying the volume directory. See the "Vector DB Transfer with Qdrant
->   Snapshots" section below.
-> - Local file mode (`data/qdrant_storage/`) is deprecated and raises a
->   RuntimeError at startup.
 
 ---
 
@@ -557,6 +561,56 @@ uv run -m ate_rag_kb.cli.main search "timing set configuration" --top-k 5
 # Check collection stats
 uv run -m ate_rag_kb.cli.main status
 ```
+
+### Maintenance Scripts
+
+```bash
+# Rebuild sparse vectors after vocabulary or encoder changes
+# (requires a running Qdrant server and an existing collection)
+uv run python scripts/rebuild_sparse_vectors.py
+```
+
+This script reads every point's content from the Qdrant collection,
+re-encodes the sparse vectors using the current `SparseVectorEncoder`, and
+updates them in-place. It does not re-chunk or re-embed dense vectors. Run it
+after a full ingestion and only when the sparse encoder configuration has
+changed.
+
+## Where Do All the Files Live?
+
+Every path in this guide that starts with `./data/...` or `./embeddings/...` is
+**relative to the project root** — the `ate-rag-kb` folder you cloned in Step 1.
+Nothing is written outside this folder unless you deliberately change the config.
+This is the same on macOS and Windows.
+
+| What | Path | Created by | Commit to git? |
+|------|------|------------|----------------|
+| Your source Markdown docs | `data/raw/markdown/` | **You** (copy files in) | No |
+| Optional JSON metadata | `data/raw/json/` | You (optional) | No |
+| Optional images | `data/raw/assets/` | You (optional) | No |
+| **Qdrant data — server mode (default)** | `data/qdrant_server/` | Docker container | No |
+| Ingestion state | `data/processed/` | `ingest` command | No |
+| Embedding model cache (~6.4 GB) | `embeddings/cache/` | You (download) or Hugging Face | No |
+
+**Concrete examples** — relative to the project root:
+
+| What | Relative path |
+|------|---------------|
+| V93000 / SMT7 Markdown files | `data/raw/markdown/v93000/smt7/` |
+| J750 / IG-XL Markdown files | `data/raw/markdown/igxl/` |
+| Embedding model cache | `embeddings/cache/` |
+
+> **Qdrant data is runtime state, not a distribution artifact:**
+>
+> - **`data/qdrant_server/`** is the Docker volume that the Qdrant container
+>   writes to. Start it with `docker compose up -d qdrant`.
+> - To transfer or back up your vector data, use **Qdrant snapshots** instead
+>   of copying the volume directory. See the "Vector DB Transfer with Qdrant
+>   Snapshots" section above.
+> - Local file mode (`data/qdrant_storage/`) is deprecated and raises a
+>   RuntimeError at startup.
+
+---
 
 ## License
 

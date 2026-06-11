@@ -60,50 +60,87 @@ docker --version
 
 ## 快速开始（15–30 分钟）
 
-> **第 0 步 — 把项目下载到本机。** 选一个你记得住的目录（用户主目录即可），
-> 然后克隆并进入：
->
-> ```bash
-> git clone https://github.com/WalterLuo/ate-rag-kb.git
-> cd ate-rag-kb
-> ```
->
-> 下方所有命令和路径都假设你正处在这个 **`ate-rag-kb` 文件夹内**（即"项目根目录"）。
+下方所有命令和路径都假设你正处在 **`ate-rag-kb` 文件夹内**（即"项目根目录"）。
+
+### 1. 克隆仓库
+
+选一个你记得住的目录（用户主目录即可）：
 
 ```bash
-# 1. 安装依赖
+git clone https://github.com/WalterLuo/ate-rag-kb.git
+cd ate-rag-kb
+```
+
+### 2. 安装依赖
+
+```bash
 uv sync
+```
 
-# 2. 启动 Qdrant 服务器
+### 3. 启动 Qdrant 服务器
+
+```bash
 docker compose up -d qdrant
+```
 
-# 3. 下载 Embedding 模型
-#    方案 A：使用预打包缓存（约 6.4 GB）
-#    从 PikPak 下载并解压到项目根目录：
-#    https://mypikpak.com/s/VOuGT6UlblOdQSw2ZNEP9F12o2
-#    方案 B：首次使用时让 Hugging Face 自动下载
-#    （临时在 configs/config.yaml 中设置 local_files_only: false）
+### 4. 下载 Embedding 模型
+
+方案 A：使用预打包缓存（约 6.4 GB）。从
+[PikPak](https://mypikpak.com/s/VOuGT6UlblOdQSw2ZNEP9F12o2) 下载并解压到项目根目录。
+
+方案 B：首次使用时让 Hugging Face 自动下载（临时在 `configs/config.yaml` 中设置
+`local_files_only: false`）。
+
+方案 C：使用云端 API 提供商（如 SiliconFlow）进行 GPU 加速推理，无需下载模型到本地。
+设置 API 密钥并更新 `configs/config.yaml` 即可——详见
+[云端 API 进行 Embedding 和 Reranking](#云端-api-进行-embedding-和-reranking) 章节。
+
+```bash
 uv run python scripts/verify_models.py
+```
 
-# 4. 准备本地授权 Markdown 文档
+### 5. 准备本地授权 Markdown 文档
+
+```bash
 mkdir -p data/raw/markdown/v93000/smt7
-# 将你有权使用的 Markdown 文件复制或生成到 data/raw/markdown/
+```
 
-# 5. 导入文档（首次为全量；后续运行加 --incremental）
+将你有权使用的 Markdown 文件复制或生成到 `data/raw/markdown/`。
+
+### 6. 导入文档
+
+首次为全量；后续运行加 `--incremental`。
+
+```bash
 uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
+```
 
-# 6. 配置智能体使用 MCP server 和 ATE KB 路由策略
+### 7. 配置智能体
+
+```bash
 uv run python scripts/install_mcp.py --install-agent-policy
-# 或查看下方"智能体集成"了解手动配置。
+```
 
-# 7. 验证插件/路由配置，然后重启 Codex / Claude Code / Cursor
+或查看下方[智能体集成](#智能体集成)了解手动配置。
+
+### 8. 验证并重启
+
+```bash
 uv run python scripts/validate_plugin_install.py
 uv run python scripts/validate_agent_routing_policy.py
+```
 
-# 8. 启动 MCP 服务器（用于智能体集成）
+然后重启 Codex / Claude Code / Cursor。
+
+### 9. 启动 MCP 服务器（用于智能体集成）
+
+```bash
 uv run -m ate_rag_kb.cli.main mcp
+```
 
-# 9. 或启动 HTTP API（用于直接访问）
+或启动 HTTP API（用于直接访问）：
+
+```bash
 uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 ```
 
@@ -114,38 +151,6 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 > **Server mode 是唯一支持的 Qdrant 模式。** KB 连接到
 > `http://localhost:6333`（由 Docker 启动的 Qdrant 服务器）。Local file mode
 >（`./data/qdrant_storage/`）已废弃且不受支持——启动时会抛出 RuntimeError。
-
----
-
-## 所有文件都放在哪里？（macOS 与 Windows）
-
-本指南中所有以 `./data/...` 或 `./embeddings/...` 开头的路径，都是**相对于项目
-根目录**的——也就是你在第 0 步克隆下来的那个 `ate-rag-kb` 文件夹。除非你主动
-修改配置，否则不会有任何文件写到这个文件夹之外。macOS 和 Windows 行为一致。
-
-| 内容 | 路径（位于项目根目录下） | 由谁创建 | 是否提交 git |
-|------|--------------------------|----------|--------------|
-| 你的源 Markdown 文档 | `data/raw/markdown/` | **你**（手动放入） | 否 |
-| 可选 JSON 元数据 | `data/raw/json/` | 你（可选） | 否 |
-| 可选图片 | `data/raw/assets/` | 你（可选） | 否 |
-| **Qdrant 数据 — server 模式（默认）** | `data/qdrant_server/` | Docker 容器 | 否 |
-| 导入状态 | `data/processed/` | `ingest` 命令 | 否 |
-| Embedding 模型缓存（约 6.4 GB） | `embeddings/cache/` | 你（下载）或 Hugging Face | 否 |
-
-**具体示例** — 如果你把项目克隆到了用户主目录下：
-
-| 操作系统 | 项目根目录 | 你的 Markdown 文件放在 |
-|----------|------------|------------------------|
-| **macOS** | `/Users/you/ate-rag-kb` | `/Users/you/ate-rag-kb/data/raw/markdown/v93000/smt7/` |
-| **Windows** | `C:\Users\you\ate-rag-kb` | `C:\Users\you\ate-rag-kb\data\raw\markdown\v93000\smt7\` |
-
-> **Qdrant 数据是运行时状态，不是分发产物：**
->
-> - **`data/qdrant_server/`** 是 Qdrant 容器写入的 Docker 卷。用
->   `docker compose up -d qdrant` 启动。
-> - 要传输或备份向量数据，请使用 **Qdrant 快照**而不是直接复制卷目录。
->   参见下方"使用 Qdrant 快照传输向量库"章节。
-> - Local file mode（`data/qdrant_storage/`）已废弃，启动时会抛出 RuntimeError。
 
 ---
 
@@ -525,6 +530,51 @@ uv run -m ate_rag_kb.cli.main search "timing set configuration" --top-k 5
 # 检查集合统计
 uv run -m ate_rag_kb.cli.main status
 ```
+
+### 维护脚本
+
+```bash
+# 在 sparse encoder 词汇表或配置变更后重建稀疏向量
+# （需要运行中的 Qdrant 服务器和已有集合）
+uv run python scripts/rebuild_sparse_vectors.py
+```
+
+该脚本从 Qdrant 集合中读取每个点的文本内容，使用当前
+`SparseVectorEncoder` 重新编码稀疏向量并原地更新。不会重新分块或
+重新编码 dense 向量。仅在完成全量导入且 sparse encoder 配置发生变更后运行。
+
+## 所有文件都放在哪里？
+
+本指南中所有以 `./data/...` 或 `./embeddings/...` 开头的路径，都是**相对于项目
+根目录**的——也就是你在第 1 步克隆下来的那个 `ate-rag-kb` 文件夹。除非你主动
+修改配置，否则不会有任何文件写到这个文件夹之外。macOS 和 Windows 行为一致。
+
+| 内容 | 路径 | 由谁创建 | 是否提交 git |
+|------|------|----------|--------------|
+| 你的源 Markdown 文档 | `data/raw/markdown/` | **你**（手动放入） | 否 |
+| 可选 JSON 元数据 | `data/raw/json/` | 你（可选） | 否 |
+| 可选图片 | `data/raw/assets/` | 你（可选） | 否 |
+| **Qdrant 数据 — server 模式（默认）** | `data/qdrant_server/` | Docker 容器 | 否 |
+| 导入状态 | `data/processed/` | `ingest` 命令 | 否 |
+| Embedding 模型缓存（约 6.4 GB） | `embeddings/cache/` | 你（下载）或 Hugging Face | 否 |
+
+**具体示例** — 相对于项目根目录：
+
+| 内容 | 相对路径 |
+|------|----------|
+| V93000 / SMT7 Markdown 文件 | `data/raw/markdown/v93000/smt7/` |
+| J750 / IG-XL Markdown 文件 | `data/raw/markdown/igxl/` |
+| Embedding 模型缓存 | `embeddings/cache/` |
+
+> **Qdrant 数据是运行时状态，不是分发产物：**
+>
+> - **`data/qdrant_server/`** 是 Qdrant 容器写入的 Docker 卷。用
+>   `docker compose up -d qdrant` 启动。
+> - 要传输或备份向量数据，请使用 **Qdrant 快照**而不是直接复制卷目录。
+>   参见上方"使用 Qdrant 快照传输向量库"章节。
+> - Local file mode（`data/qdrant_storage/`）已废弃，启动时会抛出 RuntimeError。
+
+---
 
 ## 许可证
 

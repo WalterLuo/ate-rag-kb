@@ -55,7 +55,8 @@ data/processed/
 data/qdrant_storage/
 data/qdrant_server/
 
-# Ignore raw data subdirs except built-in markdown docs
+# Ignore raw data subdirs (local source docs, not committed)
+data/raw/markdown/
 data/raw/assets/
 data/raw/json/
 data/raw/*.json
@@ -66,11 +67,21 @@ embeddings/cache/
 
 # Evaluation outputs
 evaluation_*.json
-reports/
+/reports/
 
 # Delivery artifacts
 *.tar.gz
 .mcp.json
 
-# Claude
-.claude/
+# Claude — ignore local/session state, allow tracked commands
+.claude/settings.local.json
+.claude/projects/
+.claude/todos/
+.claude/memory/
+.claude/plans/
+.claude/sessions/
+.claude/statsig/
+.claude/logs/
+
+# Private local conversion scripts
+scripts/local/
