@@ -37,20 +37,22 @@ Then verify:
 uv run -m ate_rag_kb.cli.main status
 ```
 
-### Local Mode (Not Recommended for Multi-Process)
+### Local Mode (Deprecated)
 
-For single-process debugging only, set `mode: local` in
-`configs/config.yaml`:
+Local file mode (`mode: local` or legacy `use_local: true`) is **no longer
+supported**. Setting either option raises a `RuntimeError` at startup with a
+message directing you to server mode. Use Docker-based server mode instead:
+
+```bash
+docker compose up -d qdrant
+```
+
+And in `configs/config.yaml`:
 
 ```yaml
 vector_store:
-  mode: local
-  local_path: "./data/qdrant_storage"
+  mode: server
 ```
-
-> **Warning:** Local mode locks the storage directory. Running MCP + CLI + API
-> concurrently will trigger `portalocker.AlreadyLocked`. Use server mode for
-> any real workflow.
 
 ### State Isolation and Profile Changes
 

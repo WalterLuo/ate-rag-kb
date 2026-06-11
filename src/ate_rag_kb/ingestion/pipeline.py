@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from ate_rag_kb.chunking.models import Chunk
 from ate_rag_kb.chunking.strategies import HierarchicalChunker
-from ate_rag_kb.domain.scopes import RetrievalScope, TERADYNE_J750_IGXL
+from ate_rag_kb.domain.scopes import TERADYNE_J750_IGXL, RetrievalScope
 from ate_rag_kb.embedding.encoder import EmbeddingEncoder
 from ate_rag_kb.ingestion.document_graph import DocumentGraphBuilder
 from ate_rag_kb.ingestion.symbol_catalog import SymbolCatalogBuilder

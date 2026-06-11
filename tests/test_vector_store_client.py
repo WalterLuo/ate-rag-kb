@@ -182,15 +182,16 @@ class TestQdrantVectorStore:
 
         qdrant_cls.assert_called_once_with(url="http://qdrant:6333")
 
-    def test_init_with_use_local_uses_path_client(self) -> None:
-        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+    def test_init_with_use_local_raises_deprecation_error(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient"), patch(
             "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
         ):
             from ate_rag_kb.utils.config import Config
 
-            QdrantVectorStore(Config({"vector_store": {"use_local": True, "local_path": "/tmp/qdrant_test"}}))
-
-        qdrant_cls.assert_called_once_with(path="/tmp/qdrant_test")
+            with pytest.raises(RuntimeError, match="no longer supported"):
+                QdrantVectorStore(
+                    Config({"vector_store": {"use_local": True, "local_path": "/tmp/qdrant_test"}})
+                )
 
     def test_init_without_url_or_local_uses_host_port(self) -> None:
         with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
@@ -202,17 +203,16 @@ class TestQdrantVectorStore:
 
         qdrant_cls.assert_called_once_with(host="qdrant", port=9999)
 
-    def test_init_mode_local_uses_path_client(self) -> None:
-        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+    def test_init_mode_local_raises_deprecation_error(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient"), patch(
             "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
         ):
             from ate_rag_kb.utils.config import Config
 
-            QdrantVectorStore(
-                Config({"vector_store": {"mode": "local", "local_path": "/tmp/qdrant_local"}})
-            )
-
-        qdrant_cls.assert_called_once_with(path="/tmp/qdrant_local")
+            with pytest.raises(RuntimeError, match="no longer supported"):
+                QdrantVectorStore(
+                    Config({"vector_store": {"mode": "local", "local_path": "/tmp/qdrant_local"}})
+                )
 
     def test_init_mode_server_with_url_uses_url(self) -> None:
         with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
@@ -258,25 +258,24 @@ class TestQdrantVectorStore:
 
         qdrant_cls.assert_called_once_with(host="localhost", port=6333)
 
-    def test_init_mode_takes_priority_over_url(self) -> None:
-        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient") as qdrant_cls, patch(
+    def test_init_mode_local_takes_priority_over_url_but_raises(self) -> None:
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient"), patch(
             "ate_rag_kb.vector_store.qdrant_client.ensure_collection"
         ):
             from ate_rag_kb.utils.config import Config
 
-            QdrantVectorStore(
-                Config(
-                    {
-                        "vector_store": {
-                            "mode": "local",
-                            "url": "http://qdrant:6333",
-                            "local_path": "/tmp/qdrant_local",
+            with pytest.raises(RuntimeError, match="no longer supported"):
+                QdrantVectorStore(
+                    Config(
+                        {
+                            "vector_store": {
+                                "mode": "local",
+                                "url": "http://qdrant:6333",
+                                "local_path": "/tmp/qdrant_local",
+                            }
                         }
-                    }
+                    )
                 )
-            )
-
-        qdrant_cls.assert_called_once_with(path="/tmp/qdrant_local")
 
     def test_clear_collection(self, store: QdrantVectorStore, mock_client: MagicMock) -> None:
         with patch("ate_rag_kb.vector_store.qdrant_client.ensure_collection") as mock_ensure:
@@ -306,18 +305,14 @@ class TestQdrantVectorStore:
         assert store.count() == 1
 
     def test_dense_only_store_ignores_legacy_sparse_vocab(self, tmp_path: Path) -> None:
-        local_path = tmp_path / "qdrant"
-        client = QdrantClient(path=str(local_path))
+        client = QdrantClient(":memory:")
         create_collection(client, "dense_only", vector_size=2, enable_sparse=False)
-        client.close()
         processed_dir = tmp_path / "processed"
         processed_dir.mkdir()
         (processed_dir / "sparse_vocab.json").write_text('{"site": 0}')
         cfg = Config(
             {
                 "vector_store": {
-                    "mode": "local",
-                    "local_path": str(local_path),
                     "collection_name": "dense_only",
                 },
                 "schema": {
@@ -329,10 +324,10 @@ class TestQdrantVectorStore:
             }
         )
 
-        store = QdrantVectorStore(cfg)
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient", return_value=client):
+            store = QdrantVectorStore(cfg)
 
         assert store.schema_compatible is True
-        store.client.close()
 
     def test_sparse_collection_requires_fitted_encoder_before_upsert(self) -> None:
         client = QdrantClient(":memory:")
@@ -356,18 +351,14 @@ class TestQdrantVectorStore:
     def test_rebuild_mode_allows_loading_incompatible_collection(
         self, tmp_path: Path
     ) -> None:
-        local_path = tmp_path / "qdrant"
-        client = QdrantClient(path=str(local_path))
+        client = QdrantClient(":memory:")
         client.create_collection(
             "old",
             vectors_config=VectorParams(size=2, distance=Distance.COSINE),
         )
-        client.close()
         cfg = Config(
             {
                 "vector_store": {
-                    "mode": "local",
-                    "local_path": str(local_path),
                     "collection_name": "old",
                 },
                 "schema": {
@@ -379,28 +370,24 @@ class TestQdrantVectorStore:
             }
         )
 
-        store = QdrantVectorStore(cfg, allow_incompatible_schema=True)
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient", return_value=client):
+            store = QdrantVectorStore(cfg, allow_incompatible_schema=True)
 
         assert store.schema_compatible is False
         store.clear_collection()
         assert store.schema_compatible is True
-        store.client.close()
 
     def test_rebuild_mode_marks_legacy_sparse_vocab_incompatible(
         self, tmp_path: Path
     ) -> None:
-        local_path = tmp_path / "qdrant"
-        client = QdrantClient(path=str(local_path))
+        client = QdrantClient(":memory:")
         create_collection(client, "old", vector_size=2, enable_sparse=True)
-        client.close()
         processed_dir = tmp_path / "processed"
         processed_dir.mkdir()
         (processed_dir / "sparse_vocab.json").write_text('{"site": 0}')
         cfg = Config(
             {
                 "vector_store": {
-                    "mode": "local",
-                    "local_path": str(local_path),
                     "collection_name": "old",
                 },
                 "schema": {
@@ -412,7 +399,7 @@ class TestQdrantVectorStore:
             }
         )
 
-        store = QdrantVectorStore(cfg, allow_incompatible_schema=True)
+        with patch("ate_rag_kb.vector_store.qdrant_client.QdrantClient", return_value=client):
+            store = QdrantVectorStore(cfg, allow_incompatible_schema=True)
 
         assert store.schema_compatible is False
-        store.client.close()

@@ -24,9 +24,15 @@ from ate_rag_kb.vector_store.schema import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+_LOCAL_MODE_DEPRECATED = (
+    "Local Qdrant mode is no longer supported. "
+    "Use server mode (docker compose up -d qdrant) instead. "
+    "See README.md for migration instructions."
+)
+
 
 class QdrantVectorStore:
-    """Local-first Qdrant vector store for ATE KB chunks."""
+    """Server-mode Qdrant vector store for ATE KB chunks."""
 
     def __init__(
         self,
@@ -40,17 +46,15 @@ class QdrantVectorStore:
         self.upsert_batch_size: int = cfg.get("vector_store.upsert_batch_size", 128)
         self.enable_sparse_vectors: bool = cfg.get("schema.enable_sparse_vectors", True)
         self.schema_compatible = True
-        self.local_path: Path = Path(cfg.get("vector_store.local_path", "./data/qdrant_storage"))
         mode: str | None = cfg.get("vector_store.mode")
         url: str | None = cfg.get("vector_store.url")
         use_local: bool = cfg.get("vector_store.use_local", False)
 
-        # mode takes priority; fallback to legacy use_local/url logic
+        # Local mode is deprecated and raises
         if mode == "local" or (mode is None and use_local):
-            self.local_path.mkdir(parents=True, exist_ok=True)
-            self.client = QdrantClient(path=str(self.local_path))
-            logger.info("Initialized local Qdrant at %s", self.local_path)
-        elif mode == "server" or mode is None:
+            raise RuntimeError(_LOCAL_MODE_DEPRECATED)
+
+        if mode == "server" or mode is None:
             if url:
                 self.client = QdrantClient(url=url)
                 logger.info("Initialized Qdrant server at %s", url)
@@ -60,7 +64,7 @@ class QdrantVectorStore:
                 self.client = QdrantClient(host=host, port=port)
                 logger.info("Initialized remote Qdrant at %s:%s", host, port)
         else:
-            raise ValueError(f"Invalid vector_store.mode: {mode}. Use 'server' or 'local'.")
+            raise ValueError(f"Invalid vector_store.mode: {mode}. Use 'server'.")
 
         try:
             ensure_collection(self.client, cfg)

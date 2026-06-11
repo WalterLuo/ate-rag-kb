@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ate_rag_kb.domain.scopes import RetrievalScope, infer_scope_from_source
 
@@ -28,7 +29,7 @@ class SymbolCatalog:
     owners: dict[str, SymbolOwner]
 
     @classmethod
-    def empty(cls) -> "SymbolCatalog":
+    def empty(cls) -> SymbolCatalog:
         return cls({})
 
     def owner_for(self, symbol: str) -> RetrievalScope | None:
@@ -63,7 +64,7 @@ class SymbolCatalog:
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: Path) -> "SymbolCatalog":
+    def load(cls, path: Path) -> SymbolCatalog:
         payload = json.loads(path.read_text(encoding="utf-8"))
         owners = {
             key: SymbolOwner(
@@ -81,7 +82,7 @@ class SymbolCatalog:
         return cls(owners)
 
     @classmethod
-    def load_if_exists(cls, path: Path) -> "SymbolCatalog":
+    def load_if_exists(cls, path: Path) -> SymbolCatalog:
         return cls.load(path) if path.exists() else cls.empty()
 
 

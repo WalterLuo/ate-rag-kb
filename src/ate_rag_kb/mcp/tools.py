@@ -23,8 +23,8 @@ from ate_rag_kb.mcp.models import (
     McpCitation,
     McpDocumentResult,
     McpRelatedResult,
-    McpRetrieveResult,
     McpResolvedScope,
+    McpRetrieveResult,
     McpSearchResult,
     McpStatusResult,
 )

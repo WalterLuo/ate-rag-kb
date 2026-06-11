@@ -111,9 +111,9 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 > 导入会在 `data/processed/` 和 `data/qdrant_server/` 下生成本地状态；
 > 这些生成文件同样不会提交到 git。
 >
-> **Server mode 为默认配置。** 默认情况下 KB 连接到 `http://localhost:6333`
->（Qdrant 服务器）。Local file mode（`./data/qdrant_storage/`）仅供单进程开发调试使用，
-> 多进程同时访问会触发 `portalocker.AlreadyLocked` 错误。
+> **Server mode 是唯一支持的 Qdrant 模式。** KB 连接到
+> `http://localhost:6333`（由 Docker 启动的 Qdrant 服务器）。Local file mode
+>（`./data/qdrant_storage/`）已废弃且不受支持——启动时会抛出 RuntimeError。
 
 ---
 
@@ -129,7 +129,6 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 | 可选 JSON 元数据 | `data/raw/json/` | 你（可选） | 否 |
 | 可选图片 | `data/raw/assets/` | 你（可选） | 否 |
 | **Qdrant 数据 — server 模式（默认）** | `data/qdrant_server/` | Docker 容器 | 否 |
-| Qdrant 数据 — 仅 local 模式 | `data/qdrant_storage/` | local 模式下的 `ingest` | 否 |
 | 导入状态 | `data/processed/` | `ingest` 命令 | 否 |
 | Embedding 模型缓存（约 6.4 GB） | `embeddings/cache/` | 你（下载）或 Hugging Face | 否 |
 
@@ -140,15 +139,13 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 | **macOS** | `/Users/you/ate-rag-kb` | `/Users/you/ate-rag-kb/data/raw/markdown/v93000/smt7/` |
 | **Windows** | `C:\Users\you\ate-rag-kb` | `C:\Users\you\ate-rag-kb\data\raw\markdown\v93000\smt7\` |
 
-> **两个 Qdrant 文件夹 — 不要搞混：**
+> **Qdrant 数据是运行时状态，不是分发产物：**
 >
-> - **`data/qdrant_server/`** 用于 **server 模式（默认）**。它是 Qdrant 容器
->   写入的 Docker 卷。用 `docker compose up -d qdrant` 启动。**这才是你需要的那个。**
-> - **`data/qdrant_storage/`** 仅在你切换到 local 模式时使用
->   （`configs/config.yaml` 中的 `vector_store.mode: local`）。它是一个内嵌
->   数据库、不需要 Docker，仅供单进程调试。
->
-> 除非有特殊需要，请始终使用 server 模式（`data/qdrant_server/`）。
+> - **`data/qdrant_server/`** 是 Qdrant 容器写入的 Docker 卷。用
+>   `docker compose up -d qdrant` 启动。
+> - 要传输或备份向量数据，请使用 **Qdrant 快照**而不是直接复制卷目录。
+>   参见下方"使用 Qdrant 快照传输向量库"章节。
+> - Local file mode（`data/qdrant_storage/`）已废弃，启动时会抛出 RuntimeError。
 
 ---
 
@@ -191,18 +188,112 @@ Windows PowerShell：
 $env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
 ```
 
-### Local Mode（仅限单进程开发）
+### 使用 Qdrant 快照传输向量库
 
-如需本地模式快速调试，在 `configs/config.yaml` 中设置 `mode: local`：
+要在不同机器之间迁移或备份已索引的数据，请使用 Qdrant 内置的快照功能，而不是直接复制 Docker 卷目录：
 
-```yaml
-vector_store:
-  mode: local
-  local_path: "./data/qdrant_storage"
+```bash
+# 创建当前集合的快照
+curl -X POST http://localhost:6333/collections/ate_kb/snapshots
+
+# 下载快照文件
+curl -o ate_kb.snapshot http://localhost:6333/collections/ate_kb/snapshots/<snapshot_name>
+
+# 在目标机器上从快照恢复（POST multipart，带 wait=true 和 priority=snapshot）
+curl -X POST "http://localhost:6333/collections/ate_kb/snapshots/upload?wait=true&priority=snapshot" \
+  -H "Content-Type: multipart/form-data" \
+  -F "snapshot=@ate_kb.snapshot"
 ```
 
-> **警告：** Local mode 会锁定存储目录，同一时间只能有一个进程访问。
-> 运行 MCP + CLI + API 并发时**不要**使用 local mode。
+也可以使用内置的快照脚本，自动完成创建、下载和恢复：
+
+```bash
+# 创建并下载
+uv run python scripts/package_qdrant_snapshot.py create --output dist
+
+# 在目标机器上上传并恢复
+uv run python scripts/package_qdrant_snapshot.py restore --snapshot dist/ate_kb.snapshot
+
+# 或指定优先级（默认为 snapshot）
+uv run python scripts/package_qdrant_snapshot.py restore --snapshot dist/ate_kb.snapshot --priority replica
+```
+
+这样可以避免文件锁定问题，确保备份的一致性。
+
+### 云端 API 进行 Embedding 和 Reranking
+
+默认情况下，KB 使用本地 sentence-transformers 模型进行 embedding 和 reranking。
+你可以切换到云端 API 提供商（如 SiliconFlow），在没有本地 GPU 的情况下获得
+GPU 加速推理。
+
+#### SiliconFlow 配置
+
+1. 从 [siliconflow.cn](https://siliconflow.cn) 获取 API 密钥。
+2. 设置环境变量：
+
+```bash
+export SILICONFLOW_API_KEY="your-api-key-here"
+```
+
+3. 更新 `configs/config.yaml`：
+
+```yaml
+embedding:
+  provider: "openai_compatible"
+  api:
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key_env: "SILICONFLOW_API_KEY"
+
+retrieval:
+  reranker:
+    provider: "http"
+    api:
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key_env: "SILICONFLOW_API_KEY"
+```
+
+或者通过环境变量切换提供商，无需修改配置文件：
+
+```bash
+# 切换 provider
+export ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
+export ATE_KB_RERANKER_PROVIDER="http"
+export SILICONFLOW_API_KEY="your-api-key-here"
+
+# 可选：切换模型名称（默认：BAAI/bge-m3、BAAI/bge-reranker-v2-m3）
+export ATE_KB_EMBEDDING_MODEL="vendor/custom-embedding"
+export ATE_KB_RERANKER_MODEL="vendor/custom-reranker"
+
+# 可选：切换 API base URL（默认：https://api.siliconflow.cn/v1）
+export ATE_KB_EMBEDDING_BASE_URL="https://api.your-vendor.com/v1"
+export ATE_KB_RERANKER_BASE_URL="https://api.your-vendor.com/v1"
+```
+
+#### 切换到其他供应商
+
+`openai_compatible` embedding provider 和 `http` reranker provider 兼容任何
+OpenAI 兼容 API。只需修改配置中的 `base_url` 和 `api_key_env` 即可指向你偏好的
+供应商。
+
+#### 禁用 Reranker
+
+如果你想完全跳过重排序（为了速度或成本），可以设置：
+
+```yaml
+retrieval:
+  reranker:
+    enabled: false
+```
+
+### 模型包重新生成
+
+如果你需要重新生成模型缓存包（例如添加了新模型或更新了现有模型）：
+
+```bash
+uv run python scripts/package_models.py
+```
+
+这会创建当前 `embeddings/cache/` 目录的压缩包，可用于离线分发。
 
 ---
 

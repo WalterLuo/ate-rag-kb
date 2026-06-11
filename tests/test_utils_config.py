@@ -68,6 +68,54 @@ class TestConfig:
 
         assert config.get("embedding.cache_dir") == "./embeddings/cache"
 
+    def test_embedding_model_name_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Embedding model name must be switchable via ATE_KB_EMBEDDING_MODEL."""
+        monkeypatch.setenv("ATE_KB_EMBEDDING_MODEL", "vendor/custom-embedding")
+        config = Config(
+            {"embedding": {"model_name": "${ATE_KB_EMBEDDING_MODEL:-BAAI/bge-m3}"}}
+        )
+
+        assert config.get("embedding.model_name") == "vendor/custom-embedding"
+
+    def test_embedding_model_name_default_when_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Embedding model name falls back to default when env var is unset."""
+        monkeypatch.delenv("ATE_KB_EMBEDDING_MODEL", raising=False)
+        config = Config(
+            {"embedding": {"model_name": "${ATE_KB_EMBEDDING_MODEL:-BAAI/bge-m3}"}}
+        )
+
+        assert config.get("embedding.model_name") == "BAAI/bge-m3"
+
+    def test_reranker_model_name_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reranker model name must be switchable via ATE_KB_RERANKER_MODEL."""
+        monkeypatch.setenv("ATE_KB_RERANKER_MODEL", "vendor/custom-reranker")
+        config = Config(
+            {
+                "retrieval": {
+                    "reranker": {
+                        "model_name": "${ATE_KB_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}"
+                    }
+                }
+            }
+        )
+
+        assert config.get("retrieval.reranker.model_name") == "vendor/custom-reranker"
+
+    def test_reranker_model_name_default_when_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reranker model name falls back to default when env var is unset."""
+        monkeypatch.delenv("ATE_KB_RERANKER_MODEL", raising=False)
+        config = Config(
+            {
+                "retrieval": {
+                    "reranker": {
+                        "model_name": "${ATE_KB_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}"
+                    }
+                }
+            }
+        )
+
+        assert config.get("retrieval.reranker.model_name") == "BAAI/bge-reranker-v2-m3"
+
 
 class TestGetConfig:
     def test_get_config_returns_same_instance_on_subsequent_calls(self) -> None:

@@ -220,7 +220,7 @@ class McpStatusResult(BaseModel):
     software_versions: list[str] = Field(default_factory=list)
     doc_families: list[str] = Field(default_factory=list)
     version: str = "0.1.0"
-    resolved_scopes: list["McpResolvedScope"] = Field(
+    resolved_scopes: list[McpResolvedScope] = Field(
         default_factory=list,
         description="Canonical retrieval scopes used for this response",
     )

@@ -285,9 +285,13 @@ class RetrievalPlanner:
         for entry in entries:
             if scope is not None and entry.software and entry.software != scope.software:
                 continue
-            if scope is None and entry.software and explicit_ecosystem is not None:
-                if RetrievalPlanner._ecosystem_from_software(entry.software) != explicit_ecosystem:
-                    continue
+            if (
+                scope is None
+                and entry.software
+                and explicit_ecosystem is not None
+                and RetrievalPlanner._ecosystem_from_software(entry.software) != explicit_ecosystem
+            ):
+                continue
             if explicit_ecosystem is not None and entry.ecosystem not in (None, explicit_ecosystem):
                 continue
             compatible.append(entry)

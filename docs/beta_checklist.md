@@ -16,7 +16,7 @@ fixes. Retest evidence is recorded in `docs/archive/10q_retest.csv`.
 - [ ] `configs/config.yaml` exists
 - [ ] `data/raw/markdown/` contains built-in documents
 - [ ] Ingestion has been run at least once
-- [ ] `data/qdrant_storage/` exists
+- [ ] Qdrant server is running (`docker compose up -d qdrant`)
 - [ ] `uv run -m ate_rag_kb.cli.main status` returns `ok` with `total_chunks > 0`
 
 ---

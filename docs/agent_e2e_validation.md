@@ -53,7 +53,7 @@ If `status` fails or `total_chunks` is `0`:
 
 1. Confirm Qdrant is running: `curl http://localhost:6333`
 2. Re-run ingestion
-3. Check `configs/config.yaml` uses server mode (`use_local: false`)
+3. Check `configs/config.yaml` uses server mode (`vector_store.mode: server`)
 
 ---
 
@@ -309,7 +309,7 @@ For the exact post-fix retest flow, use
 | `CONFIG_PATH` error | Config file missing or path is relative | Use absolute path to `configs/config.yaml` |
 | `status` fails | Qdrant server not running | Start Qdrant: `docker compose up -d qdrant` |
 | `status` fails | No ingestion or collection empty | Re-run `uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental` |
-| `status` fails | `portalocker.AlreadyLocked` | You are using local mode with multiple processes. Switch to server mode in `configs/config.yaml` (`use_local: false`) |
+| `status` fails | `portalocker.AlreadyLocked` | Local file mode is deprecated and unsupported. Use server mode: `docker compose up -d qdrant` and set `vector_store.mode: server` in `configs/config.yaml` |
 | Very slow responses | First-time model load or oversized `top_k` | Wait for embedding model cache to warm up; reduce `top_k` in `configs/config.yaml` |
 | `get_document` returns too much data | `limit` is too high | Use `limit=5` or `limit=20` |
 | Agent omits citations | System prompt is not explicit enough | Use the recommended system prompt from `docs/agent_integration.md` |

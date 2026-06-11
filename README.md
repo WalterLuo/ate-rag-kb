@@ -120,11 +120,10 @@ uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 > due to its large size. Ingestion creates local state under `data/processed/`
 > and `data/qdrant_server/`; these generated files are also not committed.
 >
-> **Server mode is the default.** By default the KB connects to
-> `http://localhost:6333` (Qdrant server). Local file mode
-> (`./data/qdrant_storage/`) is available for single-process development only
-> and will trigger `portalocker.AlreadyLocked` if multiple processes access it
-> simultaneously.
+> **Server mode is the only supported Qdrant mode.** The KB connects to
+> `http://localhost:6333` (Qdrant server started by Docker). Local file mode
+> (`./data/qdrant_storage/`) is deprecated and unsupported — it raises a
+> RuntimeError at startup.
 
 ---
 
@@ -141,7 +140,6 @@ This is the same on macOS and Windows.
 | Optional JSON metadata | `data/raw/json/` | You (optional) | No |
 | Optional images | `data/raw/assets/` | You (optional) | No |
 | **Qdrant data — server mode (default)** | `data/qdrant_server/` | Docker container | No |
-| Qdrant data — local mode only | `data/qdrant_storage/` | `ingest` in local mode | No |
 | Ingestion state | `data/processed/` | `ingest` command | No |
 | Embedding model cache (~6.4 GB) | `embeddings/cache/` | You (download) or Hugging Face | No |
 
@@ -152,16 +150,15 @@ This is the same on macOS and Windows.
 | **macOS** | `/Users/you/ate-rag-kb` | `/Users/you/ate-rag-kb/data/raw/markdown/v93000/smt7/` |
 | **Windows** | `C:\Users\you\ate-rag-kb` | `C:\Users\you\ate-rag-kb\data\raw\markdown\v93000\smt7\` |
 
-> **Two Qdrant folders — don't mix them up:**
+> **Qdrant data is runtime state, not a distribution artifact:**
 >
-> - **`data/qdrant_server/`** is used by **server mode (the default)**. It is
->   the Docker volume that the Qdrant container writes to. You start it with
->   `docker compose up -d qdrant`. **This is the one you want.**
-> - **`data/qdrant_storage/`** is used **only** if you switch to local mode
->   (`vector_store.mode: local` in `configs/config.yaml`). It is an embedded
->   database with no Docker, for single-process debugging only.
->
-> Unless you have a specific reason, stay on server mode (`data/qdrant_server/`).
+> - **`data/qdrant_server/`** is the Docker volume that the Qdrant container
+>   writes to. Start it with `docker compose up -d qdrant`.
+> - To transfer or back up your vector data, use **Qdrant snapshots** instead
+>   of copying the volume directory. See the "Vector DB Transfer with Qdrant
+>   Snapshots" section below.
+> - Local file mode (`data/qdrant_storage/`) is deprecated and raises a
+>   RuntimeError at startup.
 
 ---
 
@@ -205,20 +202,115 @@ Windows PowerShell:
 $env:ATE_KB_MODEL_CACHE="D:\ate-kb-model-cache"
 ```
 
-### Local Mode (Single-Process Dev Only)
+### Vector DB Transfer with Qdrant Snapshots
 
-If you need local mode for quick debugging, set `mode: local` in
-`configs/config.yaml`:
+To move your indexed data between machines or back it up, use Qdrant's built-in
+snapshot feature instead of copying the Docker volume directory:
 
-```yaml
-vector_store:
-  mode: local
-  local_path: "./data/qdrant_storage"
+```bash
+# Create a snapshot of the current collection
+curl -X POST http://localhost:6333/collections/ate_kb/snapshots
+
+# Download the snapshot file
+curl -o ate_kb.snapshot http://localhost:6333/collections/ate_kb/snapshots/<snapshot_name>
+
+# On the target machine, restore from snapshot (POST multipart with wait=true and priority=snapshot)
+curl -X POST "http://localhost:6333/collections/ate_kb/snapshots/upload?wait=true&priority=snapshot" \
+  -H "Content-Type: multipart/form-data" \
+  -F "snapshot=@ate_kb.snapshot"
 ```
 
-> **Warning:** Local mode locks the storage directory. Only one process can
-> access it at a time. Do **not** use local mode when running MCP + CLI + API
-> concurrently.
+Or use the built-in snapshot script, which handles creation, download, and restore:
+
+```bash
+# Create and download
+uv run python scripts/package_qdrant_snapshot.py create --output dist
+
+# Upload and restore on the target machine
+uv run python scripts/package_qdrant_snapshot.py restore --snapshot dist/ate_kb.snapshot
+
+# Or with explicit priority (default: snapshot)
+uv run python scripts/package_qdrant_snapshot.py restore --snapshot dist/ate_kb.snapshot --priority replica
+```
+
+This avoids file-locking issues and ensures a consistent backup.
+
+### Cloud API for Embedding and Reranking
+
+By default, the KB uses local sentence-transformers models for embedding and
+reranking. You can switch to a cloud API provider (e.g., SiliconFlow) for
+GPU-accelerated inference without a local GPU.
+
+#### SiliconFlow Setup
+
+1. Get an API key from [siliconflow.cn](https://siliconflow.cn).
+2. Set the environment variable:
+
+```bash
+export SILICONFLOW_API_KEY="your-api-key-here"
+```
+
+3. Update `configs/config.yaml`:
+
+```yaml
+embedding:
+  provider: "openai_compatible"
+  api:
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key_env: "SILICONFLOW_API_KEY"
+
+retrieval:
+  reranker:
+    provider: "http"
+    api:
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key_env: "SILICONFLOW_API_KEY"
+```
+
+Or use environment variables to switch providers without editing the config:
+
+```bash
+# Switch provider
+export ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
+export ATE_KB_RERANKER_PROVIDER="http"
+export SILICONFLOW_API_KEY="your-api-key-here"
+
+# Optionally switch model names (defaults: BAAI/bge-m3, BAAI/bge-reranker-v2-m3)
+export ATE_KB_EMBEDDING_MODEL="vendor/custom-embedding"
+export ATE_KB_RERANKER_MODEL="vendor/custom-reranker"
+
+# Optionally switch API base URLs (defaults: https://api.siliconflow.cn/v1)
+export ATE_KB_EMBEDDING_BASE_URL="https://api.your-vendor.com/v1"
+export ATE_KB_RERANKER_BASE_URL="https://api.your-vendor.com/v1"
+```
+
+#### Switching to Other Vendors
+
+The `openai_compatible` embedding provider and `http` reranker provider work
+with any OpenAI-compatible API. Change `base_url` and `api_key_env` in the
+config to point to your preferred vendor.
+
+#### Disabling the Reranker
+
+If you want to skip reranking entirely (for speed or cost), set:
+
+```yaml
+retrieval:
+  reranker:
+    enabled: false
+```
+
+### Model Package Regeneration
+
+If you need to regenerate the model cache package (e.g., after adding new models
+or updating existing ones):
+
+```bash
+uv run python scripts/package_models.py
+```
+
+This creates an archive of the current `embeddings/cache/` directory that can be
+distributed for offline use.
 
 ---
 

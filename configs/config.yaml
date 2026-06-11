@@ -16,7 +16,8 @@ ingestion:
 
 # Embedding model configuration
 embedding:
-  model_name: "BAAI/bge-m3"
+  provider: "${ATE_KB_EMBEDDING_PROVIDER:-local}"
+  model_name: "${ATE_KB_EMBEDDING_MODEL:-BAAI/bge-m3}"
   device: "${ATE_KB_QUERY_DEVICE:-cpu}"
   ingest_device: "${ATE_KB_INGEST_DEVICE:-auto}"
   normalize_embeddings: true
@@ -26,12 +27,15 @@ embedding:
   # false: allow first-time model download; true: require a prepared local cache.
   local_files_only: true
   query_instruction: "Represent this sentence for searching relevant passages: "
+  api:
+    base_url: "${ATE_KB_EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}"
+    api_key_env: "${ATE_KB_EMBEDDING_API_KEY_ENV:-SILICONFLOW_API_KEY}"
+    timeout_seconds: 60
 
 # Vector store configuration
-# mode: "server" (Docker/multi-process, default) or "local" (embedded, single-process only)
+# mode: "server" (Docker/multi-process, default). "local" is deprecated and will raise.
 # Server mode: prefer url, fallback to host:port
-# Local mode: uses path=local_path (Qdrant embedded)
-# Legacy: use_local=true also selects local mode when mode is absent
+# Legacy: use_local=true also raises a deprecation error
 vector_store:
   type: "qdrant"
   mode: "server"
@@ -142,10 +146,16 @@ retrieval:
     legacy_bm25_fallback: true
   reranker:
     enabled: true
-    model_name: "BAAI/bge-reranker-v2-m3"
+    provider: "${ATE_KB_RERANKER_PROVIDER:-local}"
+    model_name: "${ATE_KB_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}"
     top_k: 5
     batch_size: 4
     device: "${ATE_KB_RERANKER_DEVICE:-cpu}"
+    api:
+      base_url: "${ATE_KB_RERANKER_BASE_URL:-https://api.siliconflow.cn/v1}"
+      api_key_env: "${ATE_KB_RERANKER_API_KEY_ENV:-SILICONFLOW_API_KEY}"
+      timeout_seconds: 60
+      top_n: 40
     # Broad-concept query overrides
     broad_candidate_top_k: 40
     broad_final_top_k: 14

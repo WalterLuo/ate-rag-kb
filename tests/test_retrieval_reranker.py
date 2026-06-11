@@ -1,4 +1,4 @@
-"""Unit tests for cross-encoder reranker."""
+"""Unit tests for provider-based cross-encoder reranker."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from ate_rag_kb.utils.config import Config
 
 class TestReranker:
     def test_rerank_returns_top_k(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             model.predict.return_value = [0.5, 0.9, 0.1]
             mock_cls.return_value = model
@@ -31,7 +31,7 @@ class TestReranker:
             assert result[0].id == "c2"
 
     def test_rerank_empty_list(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder"):
+        with patch("sentence_transformers.CrossEncoder"):
             reranker = Reranker()
 
             result = reranker.rerank("query", [])
@@ -39,7 +39,7 @@ class TestReranker:
             assert result == []
 
     def test_rerank_uses_default_top_k(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             model.predict.return_value = [0.1] * 10
             mock_cls.return_value = model
@@ -75,7 +75,7 @@ class TestReranker:
             _ = reranker.model
 
     def test_reranker_cpu_device_passed_to_cross_encoder(self, tmp_path) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             cfg = Config(
                 {
                     "embedding": {"cache_dir": str(tmp_path), "local_files_only": False},
@@ -93,25 +93,28 @@ class TestReranker:
             patch("torch.cuda.is_available", return_value=False),
             patch("torch.backends.mps.is_available", return_value=False),
         ):
-            assert Reranker._resolve_device("auto") == "cpu"
+            from ate_rag_kb.retrieval.reranker_providers import LocalRerankerProvider
+            assert LocalRerankerProvider._resolve_device("auto") == "cpu"
 
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch("torch.backends.mps.is_available", return_value=True),
         ):
-            assert Reranker._resolve_device("auto") == "mps"
+            from ate_rag_kb.retrieval.reranker_providers import LocalRerankerProvider
+            assert LocalRerankerProvider._resolve_device("auto") == "mps"
 
         with (
             patch("torch.cuda.is_available", return_value=True),
             patch("torch.backends.mps.is_available", return_value=False),
         ):
-            assert Reranker._resolve_device("auto") == "cuda"
+            from ate_rag_kb.retrieval.reranker_providers import LocalRerankerProvider
+            assert LocalRerankerProvider._resolve_device("auto") == "cuda"
 
     def test_env_var_ate_kb_reranker_device_overrides_default(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
         monkeypatch.setenv("ATE_KB_RERANKER_DEVICE", "cuda")
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             cfg = Config(
                 {
                     "embedding": {"cache_dir": str(tmp_path), "local_files_only": False},
@@ -124,8 +127,26 @@ class TestReranker:
             assert reranker.device == "cuda"
             assert mock_cls.call_args.kwargs.get("device") == "cuda"
 
+    def test_model_name_env_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        """Reranker provider model_name must reflect the env-var-expanded model name."""
+        monkeypatch.setenv("ATE_KB_RERANKER_MODEL", "vendor/custom-reranker")
+        with patch("sentence_transformers.CrossEncoder"):
+            cfg = Config(
+                {
+                    "embedding": {"cache_dir": str(tmp_path), "local_files_only": False},
+                    "retrieval": {
+                        "reranker": {
+                            "model_name": "${ATE_KB_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}",
+                            "device": "cpu",
+                        }
+                    },
+                }
+            )
+            reranker = Reranker(cfg)
+            assert reranker._provider.model_name == "vendor/custom-reranker"
+
     def test_rerank_broad_concept_uses_source_diverse_selection(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             # Scores: a1=0.99, a2=0.98, a3=0.97, b1=0.80, c1=0.70, d1=0.60
             model.predict.return_value = [0.99, 0.98, 0.97, 0.80, 0.70, 0.60]
@@ -167,7 +188,7 @@ class TestReranker:
             assert "d1" not in ids
 
     def test_rerank_narrow_query_ignores_broad_settings(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             model.predict.return_value = [0.99, 0.98, 0.97, 0.80, 0.70, 0.60]
             mock_cls.return_value = model
@@ -202,7 +223,7 @@ class TestReranker:
             assert ids == ["a1", "a2", "a3", "b1", "c1"]
 
     def test_rerank_broad_concept_preserves_order_within_source(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             model.predict.return_value = [0.90, 0.85, 0.80, 0.75]
             mock_cls.return_value = model
@@ -235,7 +256,7 @@ class TestReranker:
             assert ids == ["a1", "b1", "a2", "b2"]
 
     def test_rerank_broad_concept_with_empty_source_md(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             model.predict.return_value = [0.99, 0.98, 0.80]
             mock_cls.return_value = model
@@ -268,7 +289,7 @@ class TestReranker:
             assert "b1" in ids
 
     def test_rerank_broad_concept_demotes_low_utility_chunks(self) -> None:
-        with patch("ate_rag_kb.retrieval.reranker.CrossEncoder") as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             model = MagicMock()
             model.predict.return_value = [0.99, 0.98, 0.80, 0.70]
             mock_cls.return_value = model
@@ -321,18 +342,147 @@ class TestReranker:
             assert [chunk.id for chunk in result] == ["states", "expanded"]
             assert reranker._last_rerank_stats["low_utility_rerank_candidate_count"] == 2
 
-    def test_embedding_query_device_defaults_to_cpu_and_ingest_device_independent(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("ATE_KB_QUERY_DEVICE", "cpu")
-        monkeypatch.setenv("ATE_KB_INGEST_DEVICE", "mps")
+
+class TestHttpRerankerProvider:
+    """Tests for the HTTP reranker provider."""
+
+    def test_http_rerank_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEST_RERANK_KEY", "test-key-123")
         cfg = Config(
             {
-                "embedding": {
-                    "device": "${ATE_KB_QUERY_DEVICE:-cpu}",
-                    "ingest_device": "${ATE_KB_INGEST_DEVICE:-auto}",
+                "retrieval": {
+                    "reranker": {
+                        "provider": "http",
+                        "model_name": "BAAI/bge-reranker-v2-m3",
+                        "api": {
+                            "base_url": "https://api.example.com/v1",
+                            "api_key_env": "TEST_RERANK_KEY",
+                            "timeout_seconds": 30,
+                            "top_n": 10,
+                        },
+                    }
                 }
             }
         )
-        assert cfg.get("embedding.device") == "cpu"
-        assert cfg.get("embedding.ingest_device") == "mps"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "results": [
+                {"index": 1, "relevance_score": 0.95},
+                {"index": 0, "relevance_score": 0.80},
+            ]
+        }
+
+        with patch("ate_rag_kb.retrieval.reranker_providers.httpx.post", return_value=mock_response):
+            reranker = Reranker(cfg)
+            chunks = [
+                Chunk(id="c1", content="low", chunk_type=ChunkType.PARAGRAPH),
+                Chunk(id="c2", content="high", chunk_type=ChunkType.PARAGRAPH),
+            ]
+            result = reranker.rerank("query", chunks)
+
+        assert len(result) == 2
+        assert result[0].id == "c2"
+
+    def test_http_rerank_missing_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MISSING_RERANK_KEY", raising=False)
+        cfg = Config(
+            {
+                "retrieval": {
+                    "reranker": {
+                        "provider": "http",
+                        "model_name": "BAAI/bge-reranker-v2-m3",
+                        "api": {
+                            "base_url": "https://api.example.com/v1",
+                            "api_key_env": "MISSING_RERANK_KEY",
+                            "timeout_seconds": 30,
+                        },
+                    }
+                }
+            }
+        )
+
+        reranker = Reranker(cfg)
+        chunks = [Chunk(id="c1", content="text", chunk_type=ChunkType.PARAGRAPH)]
+        with pytest.raises(ValueError, match="API key not found"):
+            reranker.rerank("query", chunks)
+
+    def test_http_rerank_http_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEST_RERANK_KEY", "test-key")
+        cfg = Config(
+            {
+                "retrieval": {
+                    "reranker": {
+                        "provider": "http",
+                        "model_name": "BAAI/bge-reranker-v2-m3",
+                        "api": {
+                            "base_url": "https://api.example.com/v1",
+                            "api_key_env": "TEST_RERANK_KEY",
+                            "timeout_seconds": 30,
+                        },
+                    }
+                }
+            }
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.text = "Service Unavailable"
+
+        with patch("ate_rag_kb.retrieval.reranker_providers.httpx.post", return_value=mock_response):
+            reranker = Reranker(cfg)
+            chunks = [Chunk(id="c1", content="text", chunk_type=ChunkType.PARAGRAPH)]
+            with pytest.raises(RuntimeError, match="HTTP 503"):
+                reranker.rerank("query", chunks)
+
+    def test_http_rerank_partial_results(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEST_RERANK_KEY", "test-key")
+        cfg = Config(
+            {
+                "retrieval": {
+                    "reranker": {
+                        "provider": "http",
+                        "model_name": "BAAI/bge-reranker-v2-m3",
+                        "top_k": 3,
+                        "api": {
+                            "base_url": "https://api.example.com/v1",
+                            "api_key_env": "TEST_RERANK_KEY",
+                            "timeout_seconds": 30,
+                            "top_n": 2,
+                        },
+                    }
+                }
+            }
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "results": [
+                {"index": 2, "relevance_score": 0.95},
+            ]
+        }
+
+        with patch("ate_rag_kb.retrieval.reranker_providers.httpx.post", return_value=mock_response):
+            reranker = Reranker(cfg)
+            chunks = [
+                Chunk(id="c1", content="a", chunk_type=ChunkType.PARAGRAPH),
+                Chunk(id="c2", content="b", chunk_type=ChunkType.PARAGRAPH),
+                Chunk(id="c3", content="c", chunk_type=ChunkType.PARAGRAPH),
+            ]
+            result = reranker.rerank("query", chunks, top_k=3)
+
+        # c3 has score 0.95, c1 and c2 get -1000.0 default
+        assert len(result) == 3
+        assert result[0].id == "c3"
+
+    def test_reranker_enabled_field(self) -> None:
+        cfg = Config({"retrieval": {"reranker": {"enabled": False}}})
+        reranker = Reranker(cfg)
+        assert reranker.enabled is False
+
+    def test_unknown_provider_raises_value_error(self) -> None:
+        cfg = Config({"retrieval": {"reranker": {"provider": "nonexistent"}}})
+        with pytest.raises(ValueError, match="Unknown reranker provider"):
+            Reranker(cfg)

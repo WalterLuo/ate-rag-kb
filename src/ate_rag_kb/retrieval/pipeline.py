@@ -40,7 +40,8 @@ class RetrievalPipeline:
         self.encoder = EmbeddingEncoder(config)
         self.vector_store = QdrantVectorStore(config)
         self.hybrid = HybridRetriever(self.encoder, self.vector_store, config)
-        self.reranker = Reranker(config)
+        self.reranker_enabled: bool = config.get("retrieval.reranker.enabled", True)
+        self.reranker = Reranker(config) if self.reranker_enabled else None
         self.expander = ParentChildExpander(config)
         self.compressor = ContextCompressor(config)
 
@@ -92,7 +93,7 @@ class RetrievalPipeline:
         # Phase 3: reranking (graph-expanded candidates participate)
         pre_rerank_chunk_count = len(chunks)
         rerank_stats = self._empty_rerank_stats()
-        if rerank:
+        if rerank and self.reranker is not None:
             chunks = await asyncio.to_thread(
                 self.reranker.rerank, query, chunks, is_broad_concept=is_broad_concept
             )
@@ -218,7 +219,7 @@ class RetrievalPipeline:
         pre_rerank_chunk_count = len(chunks)
         rerank_stats = self._empty_rerank_stats()
         title_match_preserved_chunk_count = 0
-        if rerank:
+        if rerank and self.reranker is not None:
             rerank_candidates = list(chunks)
             rerank_query = plan.enhanced_query or query
             chunks = await asyncio.to_thread(
@@ -359,6 +360,9 @@ class RetrievalPipeline:
         chunks: list[Chunk],
         is_broad_concept: bool,
     ) -> dict[str, int]:
+        if self.reranker is None:
+            return self._empty_rerank_stats()
+
         raw_stats = getattr(self.reranker, "_last_rerank_stats", {})
         if isinstance(raw_stats, dict) and raw_stats:
             return {**self._empty_rerank_stats(), **raw_stats}

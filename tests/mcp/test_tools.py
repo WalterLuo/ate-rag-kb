@@ -9,17 +9,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ate_rag_kb.chunking.models import Chunk, ChunkType
-from ate_rag_kb.mcp.tools import McpToolHandler
 from ate_rag_kb.domain.scopes import (
     ADVANTEST_V93000_SMT7,
     ADVANTEST_V93000_SMT8,
     TERADYNE_J750_IGXL,
 )
 from ate_rag_kb.ingestion.symbol_catalog import SymbolCatalog
-from ate_rag_kb.retrieval.document_graph_expander import DocumentGraphExpander
+from ate_rag_kb.mcp.tools import McpToolHandler
 from ate_rag_kb.retrieval.coordinator import RetrievalCoordinator
-from ate_rag_kb.retrieval.pipeline import ScopedPipelineResult
-from ate_rag_kb.retrieval.pipeline import RetrievalPipeline
+from ate_rag_kb.retrieval.document_graph_expander import DocumentGraphExpander
+from ate_rag_kb.retrieval.pipeline import RetrievalPipeline, ScopedPipelineResult
 from ate_rag_kb.retrieval.planner import RetrievalPlanner
 from ate_rag_kb.retrieval.routing import ScopeRouter
 from ate_rag_kb.utils.config import Config

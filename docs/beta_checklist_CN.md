@@ -15,7 +15,7 @@ ARRAY 引用、补充预期答案覆盖点、实现文档分页读取后，前 5
 - [ ] `configs/config.yaml` 存在
 - [ ] `data/raw/markdown/` 中包含内置文档
 - [ ] 已至少运行过一次 ingest
-- [ ] `data/qdrant_storage/` 存在
+- [ ] Qdrant server 正在运行（`docker compose up -d qdrant`）
 - [ ] `uv run -m ate_rag_kb.cli.main status` 返回 `ok` 且 `total_chunks > 0`
 
 ### 多平台生产重建与门禁

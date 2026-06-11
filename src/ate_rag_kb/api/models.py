@@ -100,7 +100,7 @@ class RetrieveResponse(BaseModel):
     expanded: bool
     compressed: bool
     answer_mode: str = "direct"
-    resolved_scopes: list["ResolvedScope"] = Field(default_factory=list)
+    resolved_scopes: list[ResolvedScope] = Field(default_factory=list)
     correction_notice: str = ""
     clarification_prompt: str = ""
     message: str = Field(
