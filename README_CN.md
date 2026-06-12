@@ -234,17 +234,66 @@ GPU 加速推理。
 #### SiliconFlow 配置
 
 1. 从 [siliconflow.cn](https://siliconflow.cn) 获取 API 密钥。
-2. 设置环境变量：
+2. 在 Windows PowerShell 中设置用户级环境变量：
+
+```powershell
+[Environment]::SetEnvironmentVariable("SILICONFLOW_API_KEY", "your-api-key-here", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_PROVIDER", "openai_compatible", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_PROVIDER", "http", "User")
+```
+
+设置后请关闭并重新打开 PowerShell、Codex、Claude Code、Cursor 或其它 MCP
+客户端，让新环境变量生效。
+
+如果只想在当前 PowerShell 窗口临时生效：
+
+```powershell
+$env:SILICONFLOW_API_KEY="your-api-key-here"
+$env:ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
+$env:ATE_KB_RERANKER_PROVIDER="http"
+```
+
+macOS / Linux 使用：
 
 ```bash
 export SILICONFLOW_API_KEY="your-api-key-here"
+export ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
+export ATE_KB_RERANKER_PROVIDER="http"
 ```
 
 不要把真实 API key 写入 `.mcp.json`、`.claude/settings.json`、Cursor MCP
 设置或其它 agent 配置文件。MCP server 配置应从父进程环境继承
 `SILICONFLOW_API_KEY`，配置文件里只保留 `CONFIG_PATH` 等非敏感值。
 
-3. 更新 `configs/config.yaml`：
+3. `configs/config.yaml` 的推荐写法是保留环境变量占位符，不写真实 key。
+   当前配置已包含：
+
+```yaml
+embedding:
+  provider: "${ATE_KB_EMBEDDING_PROVIDER:-local}"
+  api:
+    base_url: "${ATE_KB_EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}"
+    api_key_env: "${ATE_KB_EMBEDDING_API_KEY_ENV:-SILICONFLOW_API_KEY}"
+
+retrieval:
+  reranker:
+    provider: "${ATE_KB_RERANKER_PROVIDER:-http}"
+    api:
+      base_url: "${ATE_KB_RERANKER_BASE_URL:-https://api.siliconflow.cn/v1}"
+      api_key_env: "${ATE_KB_RERANKER_API_KEY_ENV:-SILICONFLOW_API_KEY}"
+```
+
+含义：
+
+- `api_key_env` 是环境变量名，不是 API key 本身。
+- `SILICONFLOW_API_KEY` 的真实值只放在 Windows 环境变量里。
+- `reranker.provider` 默认已经是 `http`。
+- `embedding.provider` 默认是 `local`；Windows 上使用云端 embedding 时，必须设置
+  `ATE_KB_EMBEDDING_PROVIDER=openai_compatible`，或把配置直接改成
+  `provider: "openai_compatible"`。
+
+如果你不想依赖 provider 环境变量，也可以直接把 provider 写死在
+`configs/config.yaml`，但仍然不要写真实 API key：
 
 ```yaml
 embedding:
@@ -261,14 +310,28 @@ retrieval:
       api_key_env: "SILICONFLOW_API_KEY"
 ```
 
-或者通过环境变量切换提供商，无需修改配置文件：
+4. 切换模型名称、base URL 或 API key 变量名。
+
+Windows PowerShell：
+
+```powershell
+# 可选：切换模型名称（默认：BAAI/bge-m3、BAAI/bge-reranker-v2-m3）
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_MODEL", "vendor/custom-embedding", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_MODEL", "vendor/custom-reranker", "User")
+
+# 可选：切换 API base URL（默认：https://api.siliconflow.cn/v1）
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_BASE_URL", "https://api.your-vendor.com/v1", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_BASE_URL", "https://api.your-vendor.com/v1", "User")
+
+# 可选：如果供应商使用其它 key 变量名
+[Environment]::SetEnvironmentVariable("MY_VENDOR_API_KEY", "your-api-key-here", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_API_KEY_ENV", "MY_VENDOR_API_KEY", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_API_KEY_ENV", "MY_VENDOR_API_KEY", "User")
+```
+
+macOS / Linux：
 
 ```bash
-# 切换 provider
-export ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
-export ATE_KB_RERANKER_PROVIDER="http"
-export SILICONFLOW_API_KEY="your-api-key-here"
-
 # 可选：切换模型名称（默认：BAAI/bge-m3、BAAI/bge-reranker-v2-m3）
 export ATE_KB_EMBEDDING_MODEL="vendor/custom-embedding"
 export ATE_KB_RERANKER_MODEL="vendor/custom-reranker"
@@ -276,6 +339,19 @@ export ATE_KB_RERANKER_MODEL="vendor/custom-reranker"
 # 可选：切换 API base URL（默认：https://api.siliconflow.cn/v1）
 export ATE_KB_EMBEDDING_BASE_URL="https://api.your-vendor.com/v1"
 export ATE_KB_RERANKER_BASE_URL="https://api.your-vendor.com/v1"
+
+# 可选：如果供应商使用其它 key 变量名
+export MY_VENDOR_API_KEY="your-api-key-here"
+export ATE_KB_EMBEDDING_API_KEY_ENV="MY_VENDOR_API_KEY"
+export ATE_KB_RERANKER_API_KEY_ENV="MY_VENDOR_API_KEY"
+```
+
+验证 Windows 环境变量是否生效：
+
+```powershell
+Get-ChildItem Env:ATE_KB_EMBEDDING_PROVIDER
+Get-ChildItem Env:ATE_KB_RERANKER_PROVIDER
+Get-ChildItem Env:SILICONFLOW_API_KEY
 ```
 
 #### 切换到其他供应商

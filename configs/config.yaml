@@ -16,6 +16,12 @@ ingestion:
 
 # Embedding model configuration
 embedding:
+  # Provider options:
+  # - local: use the prepared sentence-transformers cache under cache_dir.
+  # - openai_compatible: call embedding.api.base_url with the API key stored in
+  #   the environment variable named by embedding.api.api_key_env.
+  # Windows/cloud API setup: set ATE_KB_EMBEDDING_PROVIDER=openai_compatible
+  # in PowerShell, or replace this value with "openai_compatible".
   provider: "${ATE_KB_EMBEDDING_PROVIDER:-local}"
   model_name: "${ATE_KB_EMBEDDING_MODEL:-BAAI/bge-m3}"
   device: "${ATE_KB_QUERY_DEVICE:-cpu}"
@@ -29,6 +35,9 @@ embedding:
   query_instruction: "Represent this sentence for searching relevant passages: "
   api:
     base_url: "${ATE_KB_EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}"
+    # This is the environment variable name, not the secret value.
+    # Do not paste API keys into config.yaml. Example Windows user env var:
+    # [Environment]::SetEnvironmentVariable("SILICONFLOW_API_KEY", "<key>", "User")
     api_key_env: "${ATE_KB_EMBEDDING_API_KEY_ENV:-SILICONFLOW_API_KEY}"
     timeout_seconds: 60
 
@@ -149,6 +158,10 @@ retrieval:
     legacy_bm25_fallback: true
   reranker:
     enabled: true
+    # Provider options:
+    # - http: call reranker.api.base_url with the API key stored in the
+    #   environment variable named by reranker.api.api_key_env.
+    # - local: use the local CrossEncoder model cache on developer machines.
     provider: "${ATE_KB_RERANKER_PROVIDER:-http}"
     fallback_on_error: true
     model_name: "${ATE_KB_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}"
@@ -165,6 +178,8 @@ retrieval:
       preserve_title_matches: 3
     api:
       base_url: "${ATE_KB_RERANKER_BASE_URL:-https://api.siliconflow.cn/v1}"
+      # This is the environment variable name, not the secret value.
+      # By default embedding and reranker both read SILICONFLOW_API_KEY.
       api_key_env: "${ATE_KB_RERANKER_API_KEY_ENV:-SILICONFLOW_API_KEY}"
       timeout_seconds: 30
       top_n: 32

@@ -248,10 +248,31 @@ GPU-accelerated inference without a local GPU.
 #### SiliconFlow Setup
 
 1. Get an API key from [siliconflow.cn](https://siliconflow.cn).
-2. Set the environment variable:
+2. On Windows PowerShell, set user-level environment variables:
+
+```powershell
+[Environment]::SetEnvironmentVariable("SILICONFLOW_API_KEY", "your-api-key-here", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_PROVIDER", "openai_compatible", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_PROVIDER", "http", "User")
+```
+
+Then close and reopen PowerShell, Codex, Claude Code, Cursor, or your MCP
+client so the new environment variables are inherited.
+
+For a temporary setting in the current PowerShell window only:
+
+```powershell
+$env:SILICONFLOW_API_KEY="your-api-key-here"
+$env:ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
+$env:ATE_KB_RERANKER_PROVIDER="http"
+```
+
+On macOS / Linux:
 
 ```bash
 export SILICONFLOW_API_KEY="your-api-key-here"
+export ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
+export ATE_KB_RERANKER_PROVIDER="http"
 ```
 
 Do not put real API keys in `.mcp.json`, `.claude/settings.json`, Cursor MCP
@@ -259,7 +280,37 @@ settings, or other agent configuration files. MCP server configs should inherit
 `SILICONFLOW_API_KEY` from the parent process environment and only contain
 non-sensitive values such as `CONFIG_PATH`.
 
-3. Update `configs/config.yaml`:
+3. The recommended `configs/config.yaml` setup is to keep environment-variable
+   placeholders and never store the real key in the file. The current config
+   already contains:
+
+```yaml
+embedding:
+  provider: "${ATE_KB_EMBEDDING_PROVIDER:-local}"
+  api:
+    base_url: "${ATE_KB_EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}"
+    api_key_env: "${ATE_KB_EMBEDDING_API_KEY_ENV:-SILICONFLOW_API_KEY}"
+
+retrieval:
+  reranker:
+    provider: "${ATE_KB_RERANKER_PROVIDER:-http}"
+    api:
+      base_url: "${ATE_KB_RERANKER_BASE_URL:-https://api.siliconflow.cn/v1}"
+      api_key_env: "${ATE_KB_RERANKER_API_KEY_ENV:-SILICONFLOW_API_KEY}"
+```
+
+Meaning:
+
+- `api_key_env` is the environment variable name, not the API key value.
+- The real `SILICONFLOW_API_KEY` value should only be stored in the Windows
+  environment.
+- `reranker.provider` already defaults to `http`.
+- `embedding.provider` defaults to `local`; on Windows cloud embedding, set
+  `ATE_KB_EMBEDDING_PROVIDER=openai_compatible` or change the config value to
+  `provider: "openai_compatible"`.
+
+If you prefer not to use provider environment variables, you can pin the
+providers in `configs/config.yaml`, but still do not write the real API key:
 
 ```yaml
 embedding:
@@ -276,14 +327,28 @@ retrieval:
       api_key_env: "SILICONFLOW_API_KEY"
 ```
 
-Or use environment variables to switch providers without editing the config:
+4. Switch model names, base URLs, or the API key variable name as needed.
+
+Windows PowerShell:
+
+```powershell
+# Optional: switch model names (defaults: BAAI/bge-m3, BAAI/bge-reranker-v2-m3)
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_MODEL", "vendor/custom-embedding", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_MODEL", "vendor/custom-reranker", "User")
+
+# Optional: switch API base URLs (defaults: https://api.siliconflow.cn/v1)
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_BASE_URL", "https://api.your-vendor.com/v1", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_BASE_URL", "https://api.your-vendor.com/v1", "User")
+
+# Optional: if your vendor uses a different key variable name
+[Environment]::SetEnvironmentVariable("MY_VENDOR_API_KEY", "your-api-key-here", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_EMBEDDING_API_KEY_ENV", "MY_VENDOR_API_KEY", "User")
+[Environment]::SetEnvironmentVariable("ATE_KB_RERANKER_API_KEY_ENV", "MY_VENDOR_API_KEY", "User")
+```
+
+macOS / Linux:
 
 ```bash
-# Switch provider
-export ATE_KB_EMBEDDING_PROVIDER="openai_compatible"
-export ATE_KB_RERANKER_PROVIDER="http"
-export SILICONFLOW_API_KEY="your-api-key-here"
-
 # Optionally switch model names (defaults: BAAI/bge-m3, BAAI/bge-reranker-v2-m3)
 export ATE_KB_EMBEDDING_MODEL="vendor/custom-embedding"
 export ATE_KB_RERANKER_MODEL="vendor/custom-reranker"
@@ -291,6 +356,19 @@ export ATE_KB_RERANKER_MODEL="vendor/custom-reranker"
 # Optionally switch API base URLs (defaults: https://api.siliconflow.cn/v1)
 export ATE_KB_EMBEDDING_BASE_URL="https://api.your-vendor.com/v1"
 export ATE_KB_RERANKER_BASE_URL="https://api.your-vendor.com/v1"
+
+# Optional: if your vendor uses a different key variable name
+export MY_VENDOR_API_KEY="your-api-key-here"
+export ATE_KB_EMBEDDING_API_KEY_ENV="MY_VENDOR_API_KEY"
+export ATE_KB_RERANKER_API_KEY_ENV="MY_VENDOR_API_KEY"
+```
+
+Verify the Windows environment variables:
+
+```powershell
+Get-ChildItem Env:ATE_KB_EMBEDDING_PROVIDER
+Get-ChildItem Env:ATE_KB_RERANKER_PROVIDER
+Get-ChildItem Env:SILICONFLOW_API_KEY
 ```
 
 #### Switching to Other Vendors
