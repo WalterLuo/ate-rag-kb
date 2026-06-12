@@ -436,8 +436,12 @@ Markdown/JSON/assets 的命令行工具。
 
 ### 多平台插件安装（推荐）
 
-ATE RAG KB 支持在多种 AI CLI 工具中以插件形式安装。每个工具都有独立的
-manifest 和安装路径。运行自动 MCP 安装脚本即可配置所有已检测到的工具：
+ATE RAG KB 支持在多种 AI CLI 工具中以插件形式安装。插件 manifest 已包含
+可移植的 `.mcp.json`，因此通过 marketplace/plugin 安装后可以自动加载
+`ate-kb` MCP server，不需要用户手动编辑 agent 配置。
+
+当你需要配置已经 clone 到本地的仓库、安装全局 agent routing policy，或支持不直接
+读取插件 manifest 的工具时，再运行自动 MCP 安装脚本：
 
 ```bash
 # 配置所有检测到的 AI CLI 工具
@@ -457,7 +461,7 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 
 | 工具 | 安装命令 |
 |---------|-----------------|
-| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git` |
+| **Claude Code** | `/plugin marketplace add WalterLuo/ate-rag-kb-marketplace` 后执行 `/plugin install ate-rag-kb@ate-rag-kb-marketplace` |
 | **Cursor** | `/add-plugin ate-rag-kb` |
 | **Codex** | `/plugins` → 搜索 "ate-rag-kb" |
 | **Gemini CLI** | `gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git` |
@@ -470,9 +474,37 @@ Codex 本地/团队 marketplace 可使用本仓库的
 `.agents/plugins/marketplace.json` 注册后搜索安装；公共插件市场可搜索安装还需要
 后续发布或注册 marketplace。
 
-### Claude Code（MCP — 手动配置）
+### Claude Code（MCP — 自动配置）
 
-如果你偏好手动配置，添加到 `~/.claude/settings.json`
+Marketplace 和插件安装会自带插件根目录 `.mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "ate-kb": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "-m",
+        "ate_rag_kb.cli.main",
+        "mcp"
+      ],
+      "env": {
+        "CONFIG_PATH": "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
+        "ATE_KB_QUERY_DEVICE": "cpu",
+        "ATE_KB_RERANKER_DEVICE": "cpu"
+      }
+    }
+  }
+}
+```
+
+安装插件后重启 Claude Code。智能体将从插件提供的 MCP server 自动发现
+`ate_kb.*` 工具。
+
+只有不使用插件安装时，才需要手动配置。此时添加到 `~/.claude/settings.json`
 （macOS / Linux）或 `%USERPROFILE%\.claude\settings.json`（Windows）：
 
 ```json
@@ -495,8 +527,6 @@ Codex 本地/团队 marketplace 可使用本仓库的
   }
 }
 ```
-
-重启 Claude Code。智能体将自动发现 `ate_kb.*` 工具。
 
 ### 默认智能体行为
 

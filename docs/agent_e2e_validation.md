@@ -59,7 +59,10 @@ If `status` fails or `total_chunks` is `0`:
 
 ## 3. MCP Configuration
 
-Copy the example configuration:
+Marketplace/plugin installs include the tracked plugin-root `.mcp.json`, which
+uses `${CLAUDE_PLUGIN_ROOT}` and does not require editing agent settings.
+
+For manual, non-plugin setups, copy the example configuration:
 
 ```bash
 cp .mcp.example.json .mcp.json

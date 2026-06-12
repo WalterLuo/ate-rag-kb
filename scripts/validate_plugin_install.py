@@ -51,6 +51,7 @@ def main() -> int:
         ".claude-plugin/plugin.json",
         ".cursor-plugin/plugin.json",
         ".agents/plugins/marketplace.json",
+        ".mcp.json",
     ]:
         validate_json(PROJECT_ROOT / relative, errors)
 
@@ -73,6 +74,11 @@ def main() -> int:
     claude = read(PROJECT_ROOT / "CLAUDE.md")
     gemini = read(PROJECT_ROOT / "GEMINI.md")
     installer = read(PROJECT_ROOT / "scripts" / "install_mcp.py")
+    plugin_mcp = json.loads(read(PROJECT_ROOT / ".mcp.json"))
+    plugin_mcp_server = plugin_mcp.get("mcpServers", {}).get("ate-kb", {})
+    claude_plugin = json.loads(read(PROJECT_ROOT / ".claude-plugin" / "plugin.json"))
+    codex_plugin = json.loads(read(PROJECT_ROOT / ".codex-plugin" / "plugin.json"))
+    cursor_plugin = json.loads(read(PROJECT_ROOT / ".cursor-plugin" / "plugin.json"))
     mcp_example = read(PROJECT_ROOT / ".mcp.example.json")
 
     require("Deferred MCP Bootstrap" in agents, "AGENTS.md missing Deferred MCP Bootstrap", errors)
@@ -83,6 +89,35 @@ def main() -> int:
     require("ate_kb.ask" in gemini, "GEMINI.md missing ate_kb.ask rule", errors)
     require("--install-agent-policy" in installer, "install_mcp.py missing --install-agent-policy", errors)
     require("--skip-agent-policy" in installer, "install_mcp.py missing --skip-agent-policy", errors)
+    require(
+        plugin_mcp_server.get("args")
+        == [
+            "run",
+            "--project",
+            "${CLAUDE_PLUGIN_ROOT}",
+            "-m",
+            "ate_rag_kb.cli.main",
+            "mcp",
+        ],
+        ".mcp.json must use ${CLAUDE_PLUGIN_ROOT} for --project",
+        errors,
+    )
+    require(
+        plugin_mcp_server.get("env", {}).get("CONFIG_PATH")
+        == "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
+        ".mcp.json must use ${CLAUDE_PLUGIN_ROOT} for CONFIG_PATH",
+        errors,
+    )
+    for name, manifest in [
+        ("Claude Code", claude_plugin),
+        ("Codex", codex_plugin),
+        ("Cursor", cursor_plugin),
+    ]:
+        require(
+            manifest.get("mcpServers") == "./.mcp.json",
+            f"{name} plugin manifest must reference ./.mcp.json",
+            errors,
+        )
     require('"--project"' in mcp_example, ".mcp.example.json must use --project", errors)
     require("CONFIG_PATH" in mcp_example, ".mcp.example.json must include CONFIG_PATH", errors)
 

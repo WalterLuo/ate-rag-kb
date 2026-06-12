@@ -58,7 +58,10 @@ uv run -m ate_rag_kb.cli.main status
 
 ## 3. MCP 配置
 
-复制示例配置：
+Marketplace/plugin 安装会自带已跟踪的插件根目录 `.mcp.json`，它使用
+`${CLAUDE_PLUGIN_ROOT}`，不需要手动编辑 agent 设置。
+
+如果是非插件的手动配置，复制示例配置：
 
 ```bash
 cp .mcp.example.json .mcp.json

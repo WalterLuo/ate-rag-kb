@@ -71,7 +71,11 @@ evaluation_*.json
 
 # Delivery artifacts
 *.tar.gz
-.mcp.json
+
+# Plugin-distributed MCP configuration is tracked. Use local Claude/Codex/Cursor
+# settings or .mcp.local.json for machine-specific overrides.
+!.mcp.json
+.mcp.local.json
 
 # Claude — ignore local/session state, allow tracked commands
 .claude/settings.local.json

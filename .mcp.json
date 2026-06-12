@@ -5,13 +5,13 @@
       "args": [
         "run",
         "--project",
-        "/path/to/ate-rag-kb",
+        "${CLAUDE_PLUGIN_ROOT}",
         "-m",
         "ate_rag_kb.cli.main",
         "mcp"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "CONFIG_PATH": "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
         "ATE_KB_QUERY_DEVICE": "cpu",
         "ATE_KB_RERANKER_DEVICE": "cpu"
       }

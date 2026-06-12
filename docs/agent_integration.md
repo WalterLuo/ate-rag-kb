@@ -217,7 +217,9 @@ Before onboarding engineers, complete the formal validation steps:
 - [Beta 10-Question Retest Plan](archive/beta_retest_10q.md) — archived post-fix retest flow
   for Q2 ARRAY, Q1/Q3/Q5 completeness, and pagination
 
-Quick-start MCP config:
+Quick-start MCP config for plugin installs is now bundled in the tracked
+plugin-root `.mcp.json` and uses `${CLAUDE_PLUGIN_ROOT}`. For manual, non-plugin
+setups, copy the example configuration:
 
 ```bash
 cp .mcp.example.json .mcp.json

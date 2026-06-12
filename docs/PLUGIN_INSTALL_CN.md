@@ -67,9 +67,14 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 /plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git
 ```
 
-**MCP 配置：**
+Marketplace 和 git 插件安装会自带插件根目录 `.mcp.json`，使用
+`${CLAUDE_PLUGIN_ROOT}` 自动注册 `ate-kb` stdio MCP server。安装后重启
+Claude Code，然后运行 `/mcp` 或直接提出 ATE 问题验证 server 是否可见。
 
-Claude Code 通过 `settings.json` 支持 MCP server。安装脚本会自动配置，或手动添加：
+**手动 MCP 配置（仅作为 fallback）：**
+
+只有不使用插件安装时，才需要手动配置。Claude Code 也可以通过
+`settings.json` 配置 MCP server：
 
 ```json
 // ~/.claude/settings.json（全局）或 .claude/settings.json（项目级）
@@ -105,9 +110,13 @@ Claude Code 应自动调用 `ate_kb.search` 或 `ate_kb.retrieve`。
 
 在 Cursor Agent 聊天中，于插件市场搜索 "ate-rag-kb"。
 
-**MCP 配置：**
+Cursor 插件 manifest 同样引用 `mcpServers: "./.mcp.json"`，兼容的插件安装流程
+可以自动加载同一个 `ate-kb` MCP server。
 
-Cursor 使用 `.cursor/mcp.json`（项目级）或 `~/.cursor/mcp.json`（全局）：
+**手动 MCP 配置（仅作为 fallback）：**
+
+如果 Cursor 插件流程没有自动加载 MCP，可使用 `.cursor/mcp.json`（项目级）或
+`~/.cursor/mcp.json`（全局）：
 
 ```json
 {
@@ -120,7 +129,7 @@ Cursor 使用 `.cursor/mcp.json`（项目级）或 `~/.cursor/mcp.json`（全局
 }
 ```
 
-`scripts/install_mcp.py` 会自动配置此项。
+`scripts/install_mcp.py` 也会为本地 checkout 自动配置此项。
 
 ---
 
@@ -142,9 +151,13 @@ codex plugin marketplace add /path/to/ate-rag-kb/.agents/plugins/marketplace.jso
 
 如果要进入公共 Codex 插件市场搜索结果，还需要在仓库之外完成 marketplace 发布或注册。
 
-**MCP 配置：**
+插件安装已包含 `mcpServers: "./.mcp.json"` 和可移植的根目录 `.mcp.json`，
+因此兼容的 Codex 插件流程可以自动加载 `ate-kb` MCP server，不需要手动编辑
+`~/.codex/settings.json`。
 
-Codex 同样支持 MCP server。添加到 `~/.codex/settings.json`：
+**手动 MCP 配置（仅作为 fallback）：**
+
+如果不使用插件流程，Codex 也支持 MCP server。添加到 `~/.codex/settings.json`：
 
 ```json
 {
@@ -157,7 +170,8 @@ Codex 同样支持 MCP server。添加到 `~/.codex/settings.json`：
 }
 ```
 
-或运行 `scripts/install_mcp.py --harness codex --install-agent-policy`。
+或对本地 checkout 运行 `scripts/install_mcp.py --harness codex --install-agent-policy`
+来同时安装托管 routing policy。
 
 安装后重启 Codex，并运行：
 

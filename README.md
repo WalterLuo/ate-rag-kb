@@ -461,9 +461,13 @@ vector database snapshots unless you have explicit redistribution rights.
 
 ### Multi-Harness Plugin Installation (Recommended)
 
-ATE RAG KB can be installed as a plugin in multiple AI CLI tools. Each harness
-has its own manifest and installation path. Run the automatic MCP installer to
-configure all detected tools:
+ATE RAG KB can be installed as a plugin in multiple AI CLI tools. The plugin
+manifests include a portable `.mcp.json`, so marketplace/plugin installs can
+load the `ate-kb` MCP server without hand-editing agent settings.
+
+Use the installer when you want to configure already-cloned local checkouts,
+install global agent routing policy, or support tools that do not consume the
+plugin manifest directly:
 
 ```bash
 # Configure all detected AI CLI tools
@@ -483,7 +487,7 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 
 | Harness | Install Command |
 |---------|-----------------|
-| **Claude Code** | `/plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git` |
+| **Claude Code** | `/plugin marketplace add WalterLuo/ate-rag-kb-marketplace` then `/plugin install ate-rag-kb@ate-rag-kb-marketplace` |
 | **Cursor** | `/add-plugin ate-rag-kb` |
 | **Codex** | `/plugins` → search "ate-rag-kb" |
 | **Gemini CLI** | `gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git` |
@@ -498,10 +502,39 @@ For local or team Codex marketplace installs, register this repository's
 Codex marketplace search requires publishing or registering the marketplace
 outside this repository.
 
-### Claude Code (MCP — Manual Config)
+### Claude Code (MCP — Auto Config)
 
-If you prefer manual configuration, add to `~/.claude/settings.json`
-(macOS / Linux) or `%USERPROFILE%\.claude\settings.json` (Windows):
+Marketplace and plugin installs include a plugin-root `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ate-kb": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "-m",
+        "ate_rag_kb.cli.main",
+        "mcp"
+      ],
+      "env": {
+        "CONFIG_PATH": "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
+        "ATE_KB_QUERY_DEVICE": "cpu",
+        "ATE_KB_RERANKER_DEVICE": "cpu"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Code after installing the plugin. The agent will auto-discover
+`ate_kb.*` tools from the plugin-provided MCP server.
+
+Manual configuration is only needed if you are not using the plugin installer.
+In that case, add to `~/.claude/settings.json` (macOS / Linux) or
+`%USERPROFILE%\.claude\settings.json` (Windows):
 
 ```json
 {
@@ -523,8 +556,6 @@ If you prefer manual configuration, add to `~/.claude/settings.json`
   }
 }
 ```
-
-Restart Claude Code. The agent will auto-discover `ate_kb.*` tools.
 
 If you use the HTTP reranker or cloud embedding provider, export
 `SILICONFLOW_API_KEY` before starting Claude Code or the MCP client. Keep the

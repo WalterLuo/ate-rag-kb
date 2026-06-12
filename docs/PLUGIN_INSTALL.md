@@ -75,10 +75,15 @@ This is not recommended for Codex projectless sessions because the repository
 /plugin install ate-rag-kb@git+https://github.com/WalterLuo/ate-rag-kb.git
 ```
 
-**MCP Configuration:**
+Marketplace and git plugin installs include a plugin-root `.mcp.json` that
+registers the `ate-kb` stdio MCP server automatically using
+`${CLAUDE_PLUGIN_ROOT}`. Restart Claude Code after installation, then run `/mcp`
+or ask an ATE question to verify the server is visible.
 
-Claude Code supports MCP servers via `settings.json`. The install script
-configures it automatically, or add manually:
+**Manual MCP Configuration (fallback only):**
+
+Use manual settings only if you are not installing the plugin. Claude Code also
+supports MCP servers via `settings.json`; add:
 
 ```json
 // ~/.claude/settings.json (global) or .claude/settings.json (project)
@@ -114,9 +119,13 @@ Claude Code should invoke `ate_kb.search` or `ate_kb.retrieve` automatically.
 
 Open Cursor Agent chat, search for "ate-rag-kb" in the plugin marketplace.
 
-**MCP Configuration:**
+The Cursor plugin manifest also references `mcpServers: "./.mcp.json"` so
+compatible plugin installs can load the same `ate-kb` MCP server automatically.
 
-Cursor uses `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
+**Manual MCP Configuration (fallback only):**
+
+If the Cursor plugin flow does not load MCP automatically, use `.cursor/mcp.json`
+(project) or `~/.cursor/mcp.json` (global):
 
 ```json
 {
@@ -129,7 +138,8 @@ Cursor uses `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 }
 ```
 
-The `scripts/install_mcp.py` configures this automatically.
+The `scripts/install_mcp.py` also configures this automatically for local
+checkouts.
 
 ---
 
@@ -152,9 +162,14 @@ codex plugin marketplace add /path/to/ate-rag-kb/.agents/plugins/marketplace.jso
 Public Codex marketplace search requires publishing or registering that
 marketplace entry outside this repository.
 
-**MCP Configuration:**
+Plugin installs include `mcpServers: "./.mcp.json"` and a portable root
+`.mcp.json`, so compatible Codex plugin flows can load the `ate-kb` MCP server
+without hand-editing `~/.codex/settings.json`.
 
-Codex also supports MCP servers. Add to `~/.codex/settings.json`:
+**Manual MCP Configuration (fallback only):**
+
+If you are not using the plugin flow, Codex also supports MCP servers. Add to
+`~/.codex/settings.json`:
 
 ```json
 {
@@ -167,7 +182,8 @@ Codex also supports MCP servers. Add to `~/.codex/settings.json`:
 }
 ```
 
-Or run `scripts/install_mcp.py --harness codex --install-agent-policy`.
+Or run `scripts/install_mcp.py --harness codex --install-agent-policy` for a
+local checkout and managed routing policy.
 
 After installation, restart Codex and run:
 

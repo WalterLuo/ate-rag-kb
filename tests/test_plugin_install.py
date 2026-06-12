@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -79,6 +80,55 @@ def test_mcp_config_uses_absolute_project_path_and_config_path(tmp_path: Path) -
         "mcp",
     ]
     assert config["env"]["CONFIG_PATH"] == str(project_root / "configs" / "config.yaml")
+
+
+def test_plugin_root_mcp_config_is_portable_for_marketplace_installs() -> None:
+    config_path = PROJECT_ROOT / ".mcp.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert config == {
+        "mcpServers": {
+            "ate-kb": {
+                "command": "uv",
+                "args": [
+                    "run",
+                    "--project",
+                    "${CLAUDE_PLUGIN_ROOT}",
+                    "-m",
+                    "ate_rag_kb.cli.main",
+                    "mcp",
+                ],
+                "env": {
+                    "CONFIG_PATH": "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
+                    "ATE_KB_QUERY_DEVICE": "cpu",
+                    "ATE_KB_RERANKER_DEVICE": "cpu",
+                },
+            }
+        }
+    }
+
+
+def test_agent_plugin_manifests_reference_portable_mcp_config() -> None:
+    for relative in [
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        ".cursor-plugin/plugin.json",
+    ]:
+        manifest = json.loads((PROJECT_ROOT / relative).read_text(encoding="utf-8"))
+        assert manifest["mcpServers"] == "./.mcp.json"
+
+
+def test_codex_marketplace_points_at_portable_plugin_root() -> None:
+    marketplace = json.loads(
+        (PROJECT_ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
+
+    plugin = marketplace["plugins"][0]
+    assert plugin["name"] == "ate-rag-kb"
+    assert plugin["source"] == {
+        "source": "local",
+        "path": ".",
+    }
 
 
 def test_validate_plugin_install_script_passes() -> None:

@@ -27,5 +27,6 @@
     "rag",
     "knowledge-base",
     "mcp"
-  ]
+  ],
+  "mcpServers": "./.mcp.json"
 }
