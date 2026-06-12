@@ -10,6 +10,10 @@ from ate_rag_kb.retrieval.chunk_quality import (
     coverage_topic,
     is_low_utility_chunk,
 )
+from ate_rag_kb.retrieval.rerank_input import (
+    InputConfig,
+    shape_rerank_input,
+)
 from ate_rag_kb.retrieval.reranker_providers import (
     HttpRerankerProvider,
     LocalRerankerProvider,
@@ -39,6 +43,7 @@ class Reranker:
         self.broad_max_chunks_per_source = cfg.get(
             "retrieval.reranker.broad_max_chunks_per_source", 3
         )
+        self.input_config = InputConfig.from_config(cfg)
 
         provider_name: str = cfg.get("retrieval.reranker.provider", "local")
         provider_cls = _PROVIDER_MAP.get(provider_name)
@@ -64,14 +69,27 @@ class Reranker:
         chunks: list[Chunk],
         top_k: int | None = None,
         is_broad_concept: bool = False,
+        seed_count: int = 0,
+        title_match_terms: list[str] | None = None,
     ) -> list[Chunk]:
         if not chunks:
             return []
 
-        pairs = [(query, c.content) for c in chunks]
+        # Shape input: select diverse candidates and truncate for API
+        shaped = shape_rerank_input(
+            chunks=chunks,
+            config=self.input_config,
+            seed_count=seed_count,
+            title_match_terms=title_match_terms,
+            is_broad_concept=is_broad_concept,
+        )
+
+        # Build pairs using truncated texts for the API call
+        pairs = [(query, text) for text in shaped.truncated_texts]
         scores = self._provider.predict(pairs, batch_size=self.batch_size, show_progress_bar=False)
 
-        scored = list(zip(chunks, scores, strict=True))
+        # Map scores back to the original full chunks
+        scored = list(zip(shaped.selected_chunks, scores, strict=True))
         scored.sort(key=lambda item: item[1], reverse=True)
 
         if is_broad_concept:
@@ -91,6 +109,12 @@ class Reranker:
                 max_chunks_per_source=self.broad_max_chunks_per_source,
             )
             self._last_rerank_stats = {
+                "pre_rerank_candidate_count": shaped.pre_candidate_count,
+                "rerank_input_candidate_count": shaped.post_candidate_count,
+                "rerank_input_total_chars": shaped.total_chars,
+                "rerank_input_max_chars_per_document": shaped.max_chars_per_document,
+                "rerank_input_source_count": shaped.source_count,
+                "rerank_input_truncated_document_count": shaped.truncated_document_count,
                 "post_rerank_candidate_count": len(candidate_pool),
                 "post_rerank_source_count": len(
                     {chunk.source_md for chunk, _ in candidate_pool if chunk.source_md}
@@ -108,6 +132,12 @@ class Reranker:
         tk = top_k or self.top_k
         selected = [c for c, _ in scored[:tk]]
         self._last_rerank_stats = {
+            "pre_rerank_candidate_count": shaped.pre_candidate_count,
+            "rerank_input_candidate_count": shaped.post_candidate_count,
+            "rerank_input_total_chars": shaped.total_chars,
+            "rerank_input_max_chars_per_document": shaped.max_chars_per_document,
+            "rerank_input_source_count": shaped.source_count,
+            "rerank_input_truncated_document_count": shaped.truncated_document_count,
             "post_rerank_candidate_count": len(selected),
             "post_rerank_source_count": len(
                 {chunk.source_md for chunk in selected if chunk.source_md}

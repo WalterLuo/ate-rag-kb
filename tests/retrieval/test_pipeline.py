@@ -172,6 +172,59 @@ class TestSearchEnriched:
         pipeline.compressor.compress.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_retrieve_enriched_falls_back_when_reranker_fails(
+        self, pipeline: RetrievalPipeline
+    ) -> None:
+        """Transient reranker failures should not fail the whole retrieval."""
+        chunk = self._make_chunk("c1", score=0.9)
+
+        pipeline.hybrid.retrieve = MagicMock(return_value=[chunk])
+        pipeline.graph_expander.expand = MagicMock(return_value=([chunk], {}))
+        pipeline.reranker.rerank = MagicMock(side_effect=RuntimeError("rate limited"))
+        pipeline.expander.expand = MagicMock(side_effect=lambda chunks, *_args, **_kwargs: chunks)
+        pipeline.compressor.compress = MagicMock(side_effect=lambda chunks, **_kwargs: chunks)
+
+        planner = RetrievalPlanner(pipeline.config)
+        results = await pipeline.retrieve_enriched(
+            query="test",
+            plan=planner.plan("test"),
+            top_k=5,
+            rerank=True,
+            expand_parents=True,
+            expand_siblings=False,
+            compress=True,
+        )
+
+        assert [result[0].id for result in results] == ["c1"]
+        assert pipeline._last_retrieval_stats["reranker_fallback_used"] is True
+        assert pipeline._last_retrieval_stats["reranker_error_type"] == "RuntimeError"
+        assert "rate limited" in pipeline._last_retrieval_stats["reranker_error"]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_enriched_can_disable_reranker_fallback(
+        self, pipeline: RetrievalPipeline
+    ) -> None:
+        """Operators can keep fail-fast reranking behavior when desired."""
+        chunk = self._make_chunk("c1", score=0.9)
+        pipeline.reranker_fallback_on_error = False
+
+        pipeline.hybrid.retrieve = MagicMock(return_value=[chunk])
+        pipeline.graph_expander.expand = MagicMock(return_value=([chunk], {}))
+        pipeline.reranker.rerank = MagicMock(side_effect=RuntimeError("rate limited"))
+
+        planner = RetrievalPlanner(pipeline.config)
+        with pytest.raises(RuntimeError, match="rate limited"):
+            await pipeline.retrieve_enriched(
+                query="test",
+                plan=planner.plan("test"),
+                top_k=5,
+                rerank=True,
+                expand_parents=False,
+                expand_siblings=False,
+                compress=False,
+            )
+
+    @pytest.mark.asyncio
     async def test_retrieve_enriched_preserves_exact_title_matches_after_rerank(
         self, pipeline: RetrievalPipeline
     ) -> None:

@@ -34,6 +34,7 @@ from ate_rag_kb.retrieval.coordinator import (
 )
 from ate_rag_kb.retrieval.pipeline import RetrievalPipeline
 from ate_rag_kb.retrieval.planner import RetrievalPlan, RetrievalPlanner
+from ate_rag_kb.utils.timing import StepTimer
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +346,16 @@ class McpToolHandler:
         }
 
     @staticmethod
+    def _rerank_processing(stats: dict[str, Any], requested: bool) -> dict[str, Any]:
+        fallback_used = stats.get("reranker_fallback_used", False)
+        return {
+            "reranked": bool(requested and not fallback_used),
+            "reranker_fallback_used": fallback_used,
+            "reranker_error_type": stats.get("reranker_error_type", ""),
+            "reranker_error": stats.get("reranker_error", ""),
+        }
+
+    @staticmethod
     def _answer_contract(
         plan: RetrievalPlan,
         processing_info: dict[str, Any],
@@ -537,6 +548,91 @@ class McpToolHandler:
         if self.coordinator is not None:
             return await self._handle_retrieve_coordinated(args)
 
+        timer = StepTimer()
+        with timer.step("total"):
+            query = args["query"]
+            top_k = args.get("top_k", 10)
+            user_filters = args.get("filters") or None
+            rerank = args.get("rerank", True)
+            expand_parents = args.get("expand_parents", True)
+            expand_siblings = args.get("expand_siblings", True)
+            compress = args.get("compress", True)
+            requested_max_tokens = args.get("max_tokens")
+
+            plan = self.planner.plan(query)
+
+            if plan.is_blocked:
+                return McpRetrieveResult(
+                    query=query,
+                    total=0,
+                    chunks=[],
+                    context_package=None,
+                    message=plan.block_reason or "",
+                )
+            if plan.is_ambiguous:
+                return McpRetrieveResult(
+                    query=query,
+                    total=0,
+                    chunks=[],
+                    context_package=None,
+                    message=plan.clarification_prompt or "",
+                )
+
+            filters = self._merge_filters(plan.inferred_filters, user_filters)
+
+            results: list[tuple[Chunk, float]] = await self.pipeline.retrieve_enriched(
+                query=plan.enhanced_query,
+                plan=plan,
+                top_k=top_k * 2,
+                filters=filters,
+                expand_parents=expand_parents,
+                expand_siblings=expand_siblings,
+                rerank=rerank,
+                compress=compress,
+            )
+            results = self._apply_ecosystem_filter(query, results, plan)
+            max_results = self._result_limit_with_enrichment(
+                query, top_k, is_broad_concept=plan.is_broad_concept
+            )
+            results = results[:max_results]
+            chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
+            max_tokens = self._context_token_budget(plan, requested_max_tokens)
+            context_package = build_context_package(results, max_tokens=max_tokens)
+
+            stats = self.pipeline._last_retrieval_stats
+            processing_info = {
+                "planner_inferred_filters": plan.inferred_filters,
+                "dense_candidate_count": stats.get("dense_candidate_count", len(results)),
+                "sparse_candidate_count": stats.get("sparse_candidate_count", 0),
+                "fused_candidate_count": stats.get("fused_candidate_count", len(results)),
+                "sparse_search_used": stats.get("sparse_search_used", False),
+                "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
+                "graph_expanded_source_count": stats.get("graph_expanded_source_count", 0),
+                "graph_expanded_chunk_count": stats.get("graph_expanded_chunk_count", 0),
+                "post_rerank_candidate_count": stats.get("post_rerank_candidate_count", 0),
+                "post_rerank_source_count": stats.get("post_rerank_source_count", 0),
+                "post_diversity_candidate_count": stats.get("post_diversity_candidate_count", 0),
+                "post_diversity_source_count": stats.get("post_diversity_source_count", 0),
+                "final_context_source_count": stats.get("final_context_source_count", 0),
+                "final_context_token_estimate": stats.get("final_context_token_estimate", 0),
+                "reranked_candidate_count": stats.get("reranked_candidate_count", len(results) if rerank else 0),
+                "final_source_files": sorted({c.source_md for c in chunks if c.source_md}),
+                **self._broad_processing(stats),
+                **self._rerank_processing(stats, rerank),
+                "expanded": expand_parents or expand_siblings,
+                "compressed": compress,
+                **timer.to_dict(),
+            }
+
+            return McpRetrieveResult(
+                query=query,
+                total=len(chunks),
+                processing=processing_info,
+                answer_contract=self._answer_contract(plan, processing_info),
+                chunks=chunks,
+                context_package=context_package,
+            )
+
         query = args["query"]
         top_k = args.get("top_k", 10)
         user_filters = args.get("filters") or None
@@ -605,7 +701,7 @@ class McpToolHandler:
             "reranked_candidate_count": stats.get("reranked_candidate_count", len(results) if rerank else 0),
             "final_source_files": sorted({c.source_md for c in chunks if c.source_md}),
             **self._broad_processing(stats),
-            "reranked": rerank,
+            **self._rerank_processing(stats, rerank),
             "expanded": expand_parents or expand_siblings,
             "compressed": compress,
         }
@@ -666,114 +762,117 @@ class McpToolHandler:
         if self.coordinator is not None:
             return await self._handle_ask_coordinated(args)
 
-        question = args["question"]
-        top_k = args.get("top_k", 8)
-        user_filters = args.get("filters") or None
-        include_context = args.get("include_context_package", True)
+        timer = StepTimer()
+        with timer.step("total"):
+            question = args["question"]
+            top_k = args.get("top_k", 8)
+            user_filters = args.get("filters") or None
+            include_context = args.get("include_context_package", True)
 
-        plan = self.planner.plan(question)
+            plan = self.planner.plan(question)
 
-        if plan.is_blocked:
+            if plan.is_blocked:
+                return McpAskResult(
+                    question=question,
+                    answer=plan.block_reason or "",
+                    citations=[],
+                    source_files=[],
+                    toc_paths=[],
+                    confidence="low",
+                    context_package=None,
+                    message=plan.block_reason or "",
+                )
+            if plan.is_ambiguous:
+                return McpAskResult(
+                    question=question,
+                    answer=plan.clarification_prompt or "",
+                    citations=[],
+                    source_files=[],
+                    toc_paths=[],
+                    confidence="low",
+                    context_package=None,
+                    message=plan.clarification_prompt or "",
+                )
+
+            filters = self._merge_filters(plan.inferred_filters, user_filters)
+
+            results: list[tuple[Chunk, float]] = await self.pipeline.retrieve_enriched(
+                query=plan.enhanced_query,
+                plan=plan,
+                top_k=top_k * 2,
+                filters=filters,
+                expand_parents=True,
+                expand_siblings=True,
+                rerank=True,
+                compress=True,
+            )
+            results = self._apply_ecosystem_filter(question, results, plan)
+            max_results = self._result_limit_with_enrichment(
+                question, top_k, is_broad_concept=plan.is_broad_concept
+            )
+            results = results[:max_results]
+            chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
+
+            citations = [
+                McpCitation(
+                    chunk_id=chunk.id,
+                    excerpt=chunk.content[:300],
+                    source_md=chunk.source_md,
+                    toc_path=chunk.toc_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                )
+                for chunk in chunks
+            ]
+
+            toc_paths = sorted({tuple(c.toc_path) for c in chunks if c.toc_path})
+            source_files = sorted({c.source_md for c in chunks if c.source_md})
+            confidence = compute_confidence(chunks)
+
+            context_package = None
+            if include_context:
+                context_package = build_context_package(
+                    results,
+                    max_tokens=self._context_token_budget(plan),
+                )
+
+            stats = self.pipeline._last_retrieval_stats
+            processing_info = {
+                "planner_inferred_filters": plan.inferred_filters,
+                "dense_candidate_count": stats.get("dense_candidate_count", len(results)),
+                "sparse_candidate_count": stats.get("sparse_candidate_count", 0),
+                "fused_candidate_count": stats.get("fused_candidate_count", len(results)),
+                "sparse_search_used": stats.get("sparse_search_used", False),
+                "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
+                "graph_expanded_source_count": stats.get("graph_expanded_source_count", 0),
+                "graph_expanded_chunk_count": stats.get("graph_expanded_chunk_count", 0),
+                "post_rerank_candidate_count": stats.get("post_rerank_candidate_count", 0),
+                "post_rerank_source_count": stats.get("post_rerank_source_count", 0),
+                "post_diversity_candidate_count": stats.get("post_diversity_candidate_count", 0),
+                "post_diversity_source_count": stats.get("post_diversity_source_count", 0),
+                "final_context_source_count": stats.get("final_context_source_count", 0),
+                "final_context_token_estimate": stats.get("final_context_token_estimate", 0),
+                "reranked_candidate_count": stats.get("reranked_candidate_count", len(results)),
+                "final_source_files": source_files,
+                **self._broad_processing(stats),
+                **self._rerank_processing(stats, True),
+                "expanded": True,
+                "compressed": True,
+                **timer.to_dict(),
+            }
+
+            answer_contract = self._answer_contract(plan, processing_info)
             return McpAskResult(
                 question=question,
-                answer=plan.block_reason or "",
-                citations=[],
-                source_files=[],
-                toc_paths=[],
-                confidence="low",
-                context_package=None,
-                message=plan.block_reason or "",
+                answer=self._answer_guidance(plan, answer_contract),
+                citations=citations,
+                source_files=list(source_files),
+                toc_paths=[list(tp) for tp in toc_paths],
+                confidence=confidence,
+                context_package=context_package,
+                processing=processing_info,
+                answer_contract=answer_contract,
             )
-        if plan.is_ambiguous:
-            return McpAskResult(
-                question=question,
-                answer=plan.clarification_prompt or "",
-                citations=[],
-                source_files=[],
-                toc_paths=[],
-                confidence="low",
-                context_package=None,
-                message=plan.clarification_prompt or "",
-            )
-
-        filters = self._merge_filters(plan.inferred_filters, user_filters)
-
-        results: list[tuple[Chunk, float]] = await self.pipeline.retrieve_enriched(
-            query=plan.enhanced_query,
-            plan=plan,
-            top_k=top_k * 2,
-            filters=filters,
-            expand_parents=True,
-            expand_siblings=True,
-            rerank=True,
-            compress=True,
-        )
-        results = self._apply_ecosystem_filter(question, results, plan)
-        max_results = self._result_limit_with_enrichment(
-            question, top_k, is_broad_concept=plan.is_broad_concept
-        )
-        results = results[:max_results]
-        chunks = [_chunk_to_mcp(chunk, score) for chunk, score in results]
-
-        citations = [
-            McpCitation(
-                chunk_id=chunk.id,
-                excerpt=chunk.content[:300],
-                source_md=chunk.source_md,
-                toc_path=chunk.toc_path,
-                start_line=chunk.start_line,
-                end_line=chunk.end_line,
-            )
-            for chunk in chunks
-        ]
-
-        toc_paths = sorted({tuple(c.toc_path) for c in chunks if c.toc_path})
-        source_files = sorted({c.source_md for c in chunks if c.source_md})
-        confidence = compute_confidence(chunks)
-
-        context_package = None
-        if include_context:
-            context_package = build_context_package(
-                results,
-                max_tokens=self._context_token_budget(plan),
-            )
-
-        stats = self.pipeline._last_retrieval_stats
-        processing_info = {
-            "planner_inferred_filters": plan.inferred_filters,
-            "dense_candidate_count": stats.get("dense_candidate_count", len(results)),
-            "sparse_candidate_count": stats.get("sparse_candidate_count", 0),
-            "fused_candidate_count": stats.get("fused_candidate_count", len(results)),
-            "sparse_search_used": stats.get("sparse_search_used", False),
-            "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
-            "graph_expanded_source_count": stats.get("graph_expanded_source_count", 0),
-            "graph_expanded_chunk_count": stats.get("graph_expanded_chunk_count", 0),
-            "post_rerank_candidate_count": stats.get("post_rerank_candidate_count", 0),
-            "post_rerank_source_count": stats.get("post_rerank_source_count", 0),
-            "post_diversity_candidate_count": stats.get("post_diversity_candidate_count", 0),
-            "post_diversity_source_count": stats.get("post_diversity_source_count", 0),
-            "final_context_source_count": stats.get("final_context_source_count", 0),
-            "final_context_token_estimate": stats.get("final_context_token_estimate", 0),
-            "reranked_candidate_count": stats.get("reranked_candidate_count", len(results)),
-            "final_source_files": source_files,
-            **self._broad_processing(stats),
-            "reranked": True,
-            "expanded": True,
-            "compressed": True,
-        }
-
-        answer_contract = self._answer_contract(plan, processing_info)
-        return McpAskResult(
-            question=question,
-            answer=self._answer_guidance(plan, answer_contract),
-            citations=citations,
-            source_files=list(source_files),
-            toc_paths=[list(tp) for tp in toc_paths],
-            confidence=confidence,
-            context_package=context_package,
-            processing=processing_info,
-            answer_contract=answer_contract,
-        )
 
     async def _handle_ask_coordinated(self, args: dict[str, Any]) -> McpAskResult:
         question = args["question"]

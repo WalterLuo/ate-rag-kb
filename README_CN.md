@@ -240,6 +240,10 @@ GPU 加速推理。
 export SILICONFLOW_API_KEY="your-api-key-here"
 ```
 
+不要把真实 API key 写入 `.mcp.json`、`.claude/settings.json`、Cursor MCP
+设置或其它 agent 配置文件。MCP server 配置应从父进程环境继承
+`SILICONFLOW_API_KEY`，配置文件里只保留 `CONFIG_PATH` 等非敏感值。
+
 3. 更新 `configs/config.yaml`：
 
 ```yaml

@@ -3,16 +3,44 @@
 from __future__ import annotations
 
 import logging
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
-from ate_rag_kb.api.routes import router, set_coordinator, set_planner, set_retriever
+from ate_rag_kb.api.routes import (
+    is_retriever_initialized,
+    router,
+    set_coordinator,
+    set_planner,
+    set_retriever,
+)
 from ate_rag_kb.retrieval.coordinator import build_retrieval_coordinator
 from ate_rag_kb.retrieval.planner import RetrievalPlanner
 from ate_rag_kb.utils.config import Config
 
 logger = logging.getLogger(__name__)
+
+
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Adds ``X-Process-Time-Ms`` response header and structured log entry."""
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        start = time.perf_counter()
+        response: Response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.1f}"
+        logger.info(
+            "API request: %s %s -> %s (%.1f ms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+        return response
 
 
 def create_app(config: Config) -> FastAPI:
@@ -34,9 +62,18 @@ def create_app(config: Config) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Timing middleware (after CORS so headers are set on final response)
+    app.add_middleware(TimingMiddleware)
+
     # Health check
     @app.get("/health")
     async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/ready")
+    async def ready() -> dict[str, str]:
+        if not is_retriever_initialized():
+            raise HTTPException(status_code=503, detail="Retrieval backend not initialized")
         return {"status": "ok"}
 
     # Include API routes

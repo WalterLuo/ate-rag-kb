@@ -73,6 +73,10 @@ class SearchResponse(BaseModel):
         default="",
         description="Optional block/ambiguity/clarification message",
     )
+    timing: dict[str, float] = Field(
+        default_factory=dict,
+        description="Step-by-step execution timing in milliseconds",
+    )
 
 
 class RetrieveRequest(BaseModel):
@@ -106,6 +110,10 @@ class RetrieveResponse(BaseModel):
     message: str = Field(
         default="",
         description="Optional block/ambiguity/clarification message",
+    )
+    timing: dict[str, float] = Field(
+        default_factory=dict,
+        description="Step-by-step execution timing in milliseconds",
     )
 
 
@@ -154,6 +162,10 @@ class AskResponse(BaseModel):
         default="",
         description="Optional block/ambiguity/clarification message",
     )
+    timing: dict[str, float] = Field(
+        default_factory=dict,
+        description="Step-by-step execution timing in milliseconds",
+    )
 
 
 class RelatedRequest(BaseModel):
@@ -177,3 +189,8 @@ class DocumentResponse(BaseModel):
     source_md: str
     chunks: list[ChunkResult]
     total: int
+    returned: int = 0
+    offset: int = 0
+    limit: int = 20
+    has_more: bool = False
+    next_offset: int | None = None

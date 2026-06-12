@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import typing
+from contextlib import nullcontext as _nullcontext
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -18,6 +19,7 @@ from ate_rag_kb.retrieval.hybrid import HybridRetriever
 from ate_rag_kb.retrieval.parent_child import ParentChildExpander
 from ate_rag_kb.retrieval.reranker import Reranker
 from ate_rag_kb.utils.config import Config
+from ate_rag_kb.utils.timing import StepTimer
 from ate_rag_kb.vector_store.qdrant_client import QdrantVectorStore
 
 if typing.TYPE_CHECKING:
@@ -41,6 +43,9 @@ class RetrievalPipeline:
         self.vector_store = QdrantVectorStore(config)
         self.hybrid = HybridRetriever(self.encoder, self.vector_store, config)
         self.reranker_enabled: bool = config.get("retrieval.reranker.enabled", True)
+        self.reranker_fallback_on_error: bool = config.get(
+            "retrieval.reranker.fallback_on_error", True
+        )
         self.reranker = Reranker(config) if self.reranker_enabled else None
         self.expander = ParentChildExpander(config)
         self.compressor = ContextCompressor(config)
@@ -53,6 +58,10 @@ class RetrievalPipeline:
         self.graph_expander = DocumentGraphExpander(graph_path=graph_path)
         self.broad_assembler = BroadConceptAssembler(config, self.graph_expander)
 
+        self._timing_enabled: bool = config.get("retrieval.timing.enabled", False)
+        self._timing_log_threshold_ms: float = config.get(
+            "retrieval.timing.log_threshold_ms", 500.0
+        )
         self._last_retrieval_stats: dict[str, Any] = {}
 
     async def search(
@@ -77,56 +86,75 @@ class RetrievalPipeline:
         is_broad_concept: bool = False,
     ) -> list[tuple[Chunk, float]]:
         """Advanced retrieval with optional graph expansion, reranking, parent-child expansion, and compression."""
+        timer = StepTimer() if getattr(self, "_timing_enabled", False) else None
+
         # Phase 1: hybrid retrieval (dense + sparse + RRF)
-        chunks: list[Chunk] = await asyncio.to_thread(self.hybrid.retrieve, query, top_k, filters)
+        with timer.step("hybrid_search") if timer else _nullcontext():
+            chunks: list[Chunk] = await asyncio.to_thread(
+                self.hybrid.retrieve, query, top_k, filters
+            )
         hybrid_stats = self._capture_hybrid_stats(chunks)
 
         # Phase 2: document graph expansion
-        chunks, graph_stats = await asyncio.to_thread(
-            self.graph_expander.expand,
-            chunks,
-            self.vector_store,
-            is_broad_concept=is_broad_concept,
-            filters=filters,
-        )
+        with timer.step("graph_expansion") if timer else _nullcontext():
+            chunks, graph_stats = await asyncio.to_thread(
+                self.graph_expander.expand,
+                chunks,
+                self.vector_store,
+                is_broad_concept=is_broad_concept,
+                filters=filters,
+            )
 
         # Phase 3: reranking (graph-expanded candidates participate)
         pre_rerank_chunk_count = len(chunks)
         rerank_stats = self._empty_rerank_stats()
         if rerank and self.reranker is not None:
-            chunks = await asyncio.to_thread(
-                self.reranker.rerank, query, chunks, is_broad_concept=is_broad_concept
-            )
-            rerank_stats = self._capture_rerank_stats(
-                pre_rerank_chunk_count, chunks, is_broad_concept
-            )
+            with timer.step("reranking") if timer else _nullcontext():
+                try:
+                    chunks = await asyncio.to_thread(
+                        self.reranker.rerank, query, chunks, is_broad_concept=is_broad_concept
+                    )
+                    rerank_stats = self._capture_rerank_stats(
+                        pre_rerank_chunk_count, chunks, is_broad_concept
+                    )
+                except Exception as exc:
+                    rerank_stats = self._handle_rerank_error(
+                        exc=exc,
+                        candidate_count=pre_rerank_chunk_count,
+                        fallback_chunks=chunks,
+                    )
 
         # Phase 4: parent-child expansion
         if expand_parents or expand_siblings:
-            chunks = await asyncio.to_thread(
-                self.expander.expand,
-                chunks,
-                self.vector_store,
-                include_parent=expand_parents,
-                include_siblings=expand_siblings,
-                filters=filters,
-            )
+            with timer.step("parent_child_expansion") if timer else _nullcontext():
+                chunks = await asyncio.to_thread(
+                    self.expander.expand,
+                    chunks,
+                    self.vector_store,
+                    include_parent=expand_parents,
+                    include_siblings=expand_siblings,
+                    filters=filters,
+                )
 
         broad_stats = self._empty_broad_context_stats()
         if is_broad_concept:
-            chunks, broad_stats = await asyncio.to_thread(
-                self._assemble_broad_context, query, chunks, filters
-            )
+            with timer.step("broad_context") if timer else _nullcontext():
+                chunks, broad_stats = await asyncio.to_thread(
+                    self._assemble_broad_context, query, chunks, filters
+                )
 
         # Phase 5: compression
         if compress:
             max_tokens = broad_stats.get("broad_context_max_tokens")
-            chunks = await asyncio.to_thread(
-                self._compress_chunks, chunks, max_tokens
-            )
+            with timer.step("compression") if timer else _nullcontext():
+                chunks = await asyncio.to_thread(
+                    self._compress_chunks, chunks, max_tokens
+                )
 
         final_sources = {c.source_md for c in chunks if c.source_md}
         token_estimate = sum(len(c.content) // 4 for c in chunks)
+        timing_dict = timer.to_dict() if timer else {}
+        self._log_slow_steps(timing_dict)
 
         self._last_retrieval_stats = {
             **hybrid_stats,
@@ -139,6 +167,7 @@ class RetrievalPipeline:
             "final_context_source_count": len(final_sources),
             "final_context_token_estimate": token_estimate,
             "reranked_candidate_count": rerank_stats["post_rerank_candidate_count"],
+            **timing_dict,
         }
 
         return [(c, c.score) for c in chunks]
@@ -151,22 +180,25 @@ class RetrievalPipeline:
         filters: dict[str, Any] | None = None,
     ) -> list[tuple[Chunk, float]]:
         """Planner-driven search with title boost and context enrichment."""
+        timer = StepTimer() if getattr(self, "_timing_enabled", False) else None
+
         search_top_k = top_k * 3
         effective_filters = filters if filters is not None else plan.inferred_filters
-        chunks: list[Chunk] = await asyncio.to_thread(
-            self.hybrid.retrieve, plan.enhanced_query, search_top_k, effective_filters
-        )
+        with timer.step("hybrid_search") if timer else _nullcontext():
+            chunks: list[Chunk] = await asyncio.to_thread(
+                self.hybrid.retrieve, plan.enhanced_query, search_top_k, effective_filters
+            )
         hybrid_stats = self._capture_hybrid_stats(chunks)
 
-        # Title / TOC boost
-        boost_factor = self.config.get("retrieval.planner.title_boost_factor", 0.15)
-        chunks = self._boost_title_matches(chunks, plan.title_match_terms, boost_factor)
+        with timer.step("title_boost") if timer else _nullcontext():
+            boost_factor = self.config.get("retrieval.planner.title_boost_factor", 0.15)
+            chunks = self._boost_title_matches(chunks, plan.title_match_terms, boost_factor)
 
-        # Context enrichment for edge chunks
-        enrichment_enabled = self.config.get("retrieval.planner.context_enrichment_enabled", True)
         primary = chunks[:top_k]
+        enrichment_enabled = self.config.get("retrieval.planner.context_enrichment_enabled", True)
         if enrichment_enabled:
-            enriched = await asyncio.to_thread(self._enrich_chunks, chunks[: top_k * 2])
+            with timer.step("context_enrichment") if timer else _nullcontext():
+                enriched = await asyncio.to_thread(self._enrich_chunks, chunks[: top_k * 2])
             primary_ids = {c.id for c in primary}
             enrichment_budget = self.config.get("retrieval.planner.enrichment_budget", 3)
             enrichment_chunks = [c for c in enriched if c.id not in primary_ids][:enrichment_budget]
@@ -174,11 +206,13 @@ class RetrievalPipeline:
         else:
             final_chunks = primary
 
+        timing_dict = timer.to_dict() if timer else {}
         self._last_retrieval_stats = {
             **hybrid_stats,
             "graph_expanded_source_count": 0,
             "graph_expanded_chunk_count": 0,
             "deduplicated_candidate_count": len(final_chunks),
+            **timing_dict,
         }
 
         return [(c, c.score) for c in final_chunks]
@@ -196,63 +230,84 @@ class RetrievalPipeline:
         scope: RetrievalScope | None = None,
     ) -> list[tuple[Chunk, float]]:
         """Advanced retrieval with planner-driven enrichment, title boost, and optional reranking/expansion/compression."""
+        timer = StepTimer() if getattr(self, "_timing_enabled", False) else None
+
         # Phase 1: enriched search with title boost and context enrichment
-        chunks_with_scores = await self.search_enriched(
-            query=query,
-            plan=plan,
-            top_k=top_k,
-            filters=filters,
-        )
+        with timer.step("enriched_search") if timer else _nullcontext():
+            chunks_with_scores = await self.search_enriched(
+                query=query,
+                plan=plan,
+                top_k=top_k,
+                filters=filters,
+            )
         search_stats = dict(self._last_retrieval_stats)
         chunks = [c for c, _ in chunks_with_scores]
 
         # Phase 2: document graph expansion
-        chunks, graph_stats = await asyncio.to_thread(
-            self.graph_expander.expand,
-            chunks,
-            self.vector_store,
-            is_broad_concept=plan.is_broad_concept,
-            filters=filters,
-        )
+        with timer.step("graph_expansion") if timer else _nullcontext():
+            chunks, graph_stats = await asyncio.to_thread(
+                self.graph_expander.expand,
+                chunks,
+                self.vector_store,
+                is_broad_concept=plan.is_broad_concept,
+                filters=filters,
+            )
 
         # Phase 3: optional reranking (graph-expanded candidates participate)
         pre_rerank_chunk_count = len(chunks)
         rerank_stats = self._empty_rerank_stats()
         title_match_preserved_chunk_count = 0
         if rerank and self.reranker is not None:
-            rerank_candidates = list(chunks)
-            rerank_query = plan.enhanced_query or query
-            chunks = await asyncio.to_thread(
-                self.reranker.rerank, rerank_query, chunks, is_broad_concept=plan.is_broad_concept
-            )
-            chunks, title_match_preserved_chunk_count = self._preserve_title_match_chunks(
-                reranked=chunks,
-                candidates=rerank_candidates,
-                title_match_terms=plan.title_match_terms,
-                max_preserved=self.config.get(
-                    "retrieval.planner.title_match_preserve_count", 3
-                ),
-            )
-            rerank_stats = self._capture_rerank_stats(
-                pre_rerank_chunk_count, chunks, plan.is_broad_concept
-            )
+            with timer.step("reranking") if timer else _nullcontext():
+                rerank_candidates = list(chunks)
+                rerank_query = plan.enhanced_query or query
+                try:
+                    chunks = await asyncio.to_thread(
+                        self.reranker.rerank,
+                        rerank_query,
+                        chunks,
+                        is_broad_concept=plan.is_broad_concept,
+                        seed_count=search_stats.get(
+                            "deduplicated_candidate_count", len(rerank_candidates)
+                        ),
+                        title_match_terms=plan.title_match_terms,
+                    )
+                    chunks, title_match_preserved_chunk_count = self._preserve_title_match_chunks(
+                        reranked=chunks,
+                        candidates=rerank_candidates,
+                        title_match_terms=plan.title_match_terms,
+                        max_preserved=self.config.get(
+                            "retrieval.planner.title_match_preserve_count", 3
+                        ),
+                    )
+                    rerank_stats = self._capture_rerank_stats(
+                        pre_rerank_chunk_count, chunks, plan.is_broad_concept
+                    )
+                except Exception as exc:
+                    rerank_stats = self._handle_rerank_error(
+                        exc=exc,
+                        candidate_count=pre_rerank_chunk_count,
+                        fallback_chunks=chunks,
+                    )
 
         # Phase 4: optional parent-child expansion
         if expand_parents or expand_siblings:
-            chunks = await asyncio.to_thread(
-                self.expander.expand,
-                chunks,
-                self.vector_store,
-                include_parent=expand_parents,
-                include_siblings=expand_siblings,
-                filters=filters,
-            )
+            with timer.step("parent_child_expansion") if timer else _nullcontext():
+                chunks = await asyncio.to_thread(
+                    self.expander.expand,
+                    chunks,
+                    self.vector_store,
+                    include_parent=expand_parents,
+                    include_siblings=expand_siblings,
+                    filters=filters,
+                )
 
         broad_stats = self._empty_broad_context_stats()
         if plan.is_broad_concept:
-            chunks, broad_stats = await asyncio.to_thread(
-                self._assemble_broad_context, query, chunks, filters
-            )
+            with timer.step("broad_context") if timer else _nullcontext():
+                chunks, broad_stats = await asyncio.to_thread(
+                    self._assemble_broad_context, query, chunks, filters
+                )
 
         cross_scope_dropped_chunk_count = 0
         if scope is not None:
@@ -267,12 +322,15 @@ class RetrievalPipeline:
         # Phase 5: optional compression
         if compress:
             max_tokens = broad_stats.get("broad_context_max_tokens")
-            chunks = await asyncio.to_thread(
-                self._compress_chunks, chunks, max_tokens
-            )
+            with timer.step("compression") if timer else _nullcontext():
+                chunks = await asyncio.to_thread(
+                    self._compress_chunks, chunks, max_tokens
+                )
 
         final_sources = {c.source_md for c in chunks if c.source_md}
         token_estimate = sum(len(c.content) // 4 for c in chunks)
+        timing_dict = timer.to_dict() if timer else {}
+        self._log_slow_steps(timing_dict)
 
         self._last_retrieval_stats = {
             **search_stats,
@@ -285,6 +343,7 @@ class RetrievalPipeline:
             "final_context_source_count": len(final_sources),
             "final_context_token_estimate": token_estimate,
             "reranked_candidate_count": rerank_stats["post_rerank_candidate_count"],
+            **timing_dict,
         }
 
         return [(c, c.score) for c in chunks]
@@ -345,13 +404,40 @@ class RetrievalPipeline:
         return ScopedPipelineResult(chunks=filtered, processing=processing)
 
     @staticmethod
-    def _empty_rerank_stats() -> dict[str, int]:
+    def _empty_rerank_stats() -> dict[str, Any]:
         return {
             "post_rerank_candidate_count": 0,
             "post_rerank_source_count": 0,
             "post_diversity_candidate_count": 0,
             "post_diversity_source_count": 0,
             "low_utility_rerank_candidate_count": 0,
+            "reranker_fallback_used": False,
+            "reranker_error_type": "",
+            "reranker_error": "",
+        }
+
+    def _handle_rerank_error(
+        self,
+        *,
+        exc: Exception,
+        candidate_count: int,
+        fallback_chunks: list[Chunk],
+    ) -> dict[str, Any]:
+        """Return fallback stats or re-raise depending on config."""
+        if not self.reranker_fallback_on_error:
+            raise exc
+
+        logger.warning("Reranker failed; using pre-rerank candidates: %s", exc)
+        source_count = len({chunk.source_md for chunk in fallback_chunks if chunk.source_md})
+        return {
+            **self._empty_rerank_stats(),
+            "post_rerank_candidate_count": candidate_count,
+            "post_rerank_source_count": source_count,
+            "post_diversity_candidate_count": len(fallback_chunks),
+            "post_diversity_source_count": source_count,
+            "reranker_fallback_used": True,
+            "reranker_error_type": type(exc).__name__,
+            "reranker_error": str(exc)[:300],
         }
 
     def _capture_rerank_stats(
@@ -449,6 +535,15 @@ class RetrievalPipeline:
             "sparse_search_used": stats.get("sparse_search_used", False),
             "legacy_bm25_fallback_used": stats.get("legacy_bm25_fallback_used", False),
         }
+
+    def _log_slow_steps(self, timing_dict: dict[str, float]) -> None:
+        """Log warnings for pipeline steps exceeding the configured threshold."""
+        if not getattr(self, "_timing_enabled", False) or not timing_dict:
+            return
+        threshold = getattr(self, "_timing_log_threshold_ms", 500.0)
+        for key, value in timing_dict.items():
+            if value > threshold:
+                logger.info("Slow retrieval step: %s = %.1f ms", key, value)
 
     @classmethod
     def _boost_title_matches(

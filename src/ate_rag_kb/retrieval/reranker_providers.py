@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,50 @@ from ate_rag_kb.utils.config import Config
 logger = logging.getLogger(__name__)
 
 _OFFLINE_ENV_VARS = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+
+# HTTP status codes that indicate transient server issues
+_TRANSIENT_STATUS_CODES = {429, 503, 504}
+
+
+class _RerankCache:
+    """Simple bounded LRU cache for rerank scoring results.
+
+    Keyed by query + model + stable document digests.
+    Does NOT cache API keys or full document text.
+    """
+
+    def __init__(self, max_size: int = 64) -> None:
+        self._max_size = max_size
+        self._cache: OrderedDict[str, np.ndarray] = OrderedDict()
+
+    def get(self, key: str) -> np.ndarray | None:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
+
+    def put(self, key: str, scores: np.ndarray) -> None:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        self._cache[key] = scores
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+    @property
+    def size(self) -> int:
+        return len(self._cache)
+
+
+def _build_cache_key(query: str, model_name: str, documents: list[str]) -> str:
+    """Build a stable cache key from query, model, and document digests."""
+    parts = [query, model_name]
+    for doc in documents:
+        parts.append(hashlib.sha256(doc.encode("utf-8")).hexdigest()[:16])
+    joined = "|".join(parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
 class LocalRerankerProvider:
@@ -130,8 +176,15 @@ class HttpRerankerProvider:
         self.api_key_env: str = cfg.get(
             "retrieval.reranker.api.api_key_env", "SILICONFLOW_API_KEY"
         )
-        self.timeout_seconds: int = cfg.get("retrieval.reranker.api.timeout_seconds", 60)
-        self.top_n: int = cfg.get("retrieval.reranker.api.top_n", 40)
+        self.timeout_seconds: int = cfg.get("retrieval.reranker.api.timeout_seconds", 30)
+        self.top_n: int = cfg.get("retrieval.reranker.api.top_n", 32)
+        self.max_chunks_per_doc: int | None = cfg.get(
+            "retrieval.reranker.api.max_chunks_per_doc", None
+        )
+        self.overlap_tokens: int | None = cfg.get(
+            "retrieval.reranker.api.overlap_tokens", None
+        )
+        self._cache = _RerankCache(max_size=64)
 
     def _get_api_key(self) -> str:
         api_key = os.environ.get(self.api_key_env, "")
@@ -157,26 +210,54 @@ class HttpRerankerProvider:
         query = pairs[0][0] if pairs else ""
         documents = [doc for _, doc in pairs]
 
+        # Check cache
+        cache_key = _build_cache_key(query, self.model_name, documents)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            logger.debug("Rerank cache hit for query (%d docs)", len(documents))
+            return cached
+
+        effective_top_n = min(self.top_n, len(documents))
+
+        # Build request payload with optional fields
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "query": query,
+            "documents": documents,
+            "top_n": effective_top_n,
+            "return_documents": False,
+        }
+        if self.max_chunks_per_doc is not None:
+            payload["max_chunks_per_doc"] = self.max_chunks_per_doc
+        if self.overlap_tokens is not None:
+            payload["overlap_tokens"] = self.overlap_tokens
+
         response = httpx.post(
             f"{self.base_url}/rerank",
-            json={
-                "model": self.model_name,
-                "query": query,
-                "documents": documents,
-                "top_n": min(self.top_n, len(documents)),
-                "return_documents": False,
-            },
+            json=payload,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            timeout=self.timeout_seconds,
+            timeout=httpx.Timeout(
+                connect=10.0,
+                read=float(self.timeout_seconds),
+                write=10.0,
+                pool=10.0,
+            ),
         )
 
         if response.status_code != 200:
+            status = response.status_code
+            body = response.text[:500]
+            if status in _TRANSIENT_STATUS_CODES:
+                label = {429: "Rate limited", 503: "Service unavailable", 504: "Gateway timeout"}
+                raise RuntimeError(
+                    f"Reranker API {label.get(status, 'transient error')} "
+                    f"(HTTP {status}). Retry later. Response: {body}"
+                )
             raise RuntimeError(
-                f"Reranker API request failed (HTTP {response.status_code}): "
-                f"{response.text[:500]}"
+                f"Reranker API request failed (HTTP {status}): {body}"
             )
 
         data = response.json()
@@ -189,5 +270,8 @@ class HttpRerankerProvider:
             score = result.get("relevance_score", -1000.0)
             if 0 <= idx < len(pairs):
                 scores[idx] = score
+
+        # Cache the result
+        self._cache.put(cache_key, scores.copy())
 
         return scores

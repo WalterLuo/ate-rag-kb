@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -59,6 +59,15 @@ def mock_retriever() -> AsyncMock:
     retriever.get_document.return_value = [
         Chunk(id="c1", content="Test", chunk_type=ChunkType.PARAGRAPH, source_md="doc.md"),
     ]
+    retriever.get_document_page.return_value = {
+        "chunks": [
+            Chunk(id="c1", content="Test", chunk_type=ChunkType.PARAGRAPH, source_md="doc.md"),
+        ],
+        "total": 1,
+        "returned": 1,
+        "has_more": False,
+        "next_offset": None,
+    }
     return retriever
 
 
@@ -120,6 +129,28 @@ class TestHealth:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    def test_ready_endpoint_when_retriever_configured(self, client: TestClient) -> None:
+        response = client.get("/ready")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    def test_ready_endpoint_returns_503_without_retriever(self) -> None:
+        config = Config({"logging": {"level": "INFO", "format": "json"}})
+        with patch("ate_rag_kb.api.server._build_retriever", return_value=None):
+            app = create_app(config)
+            from ate_rag_kb.api.routes import set_coordinator, set_planner, set_retriever
+
+            set_coordinator(None)
+            set_planner(None)
+            set_retriever(None)
+
+            client = TestClient(app)
+            response = client.get("/ready")
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Retrieval backend not initialized"
+
 
 class TestSearch:
     def test_search_returns_chunks(self, client: TestClient) -> None:
@@ -177,6 +208,49 @@ class TestRetrieve:
         assert data["reranked"] is True
         assert data["expanded"] is True
         assert data["compressed"] is True
+
+    def test_retrieve_marks_not_reranked_when_fallback_used(
+        self, client: TestClient, mock_retriever: AsyncMock
+    ) -> None:
+        mock_retriever._last_retrieval_stats = {"reranker_fallback_used": True}
+
+        response = client.post(
+            "/api/v1/retrieve",
+            json={"query": "test", "rerank": True},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["reranked"] is False
+
+    def test_coordinated_retrieve_marks_not_reranked_when_fallback_used(self) -> None:
+        client, pipeline = _coordinated_client()
+
+        async def retrieve_scope(**kwargs):
+            scope = kwargs["scope"]
+            chunk = Chunk(
+                id=scope.key.replace("/", "-"),
+                content=f"{scope.key} content",
+                chunk_type=ChunkType.PARAGRAPH,
+                source_md=f"{scope.platform}/{scope.software}/doc.md",
+                doc_title=f"{scope.platform} {scope.software}",
+                vendor=scope.vendor,
+                platform=scope.platform,
+                software=scope.software,
+            )
+            return ScopedPipelineResult(
+                chunks=[(chunk, 0.9)],
+                processing={"reranker_fallback_used": True},
+            )
+
+        pipeline.retrieve_scope.side_effect = retrieve_scope
+
+        response = client.post(
+            "/api/v1/retrieve",
+            json={"query": "多 site 串行处理怎么实现？", "rerank": True},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["reranked"] is False
 
     def test_retrieve_rejects_empty_query(self, client: TestClient) -> None:
         response = client.post("/api/v1/retrieve", json={"query": ""})
@@ -239,3 +313,38 @@ class TestDocument:
         data = response.json()
         assert data["source_md"] == "doc.md"
         assert len(data["chunks"]) == 1
+
+    def test_get_document_accepts_source_paths_and_paginates(
+        self, client: TestClient, mock_retriever: AsyncMock
+    ) -> None:
+        chunk = Chunk(
+            id="c2",
+            content="Paged",
+            chunk_type=ChunkType.PARAGRAPH,
+            source_md="v93000/smt7/100096.md",
+        )
+        mock_retriever.get_document_page.return_value = {
+            "chunks": [chunk],
+            "total": 12,
+            "returned": 1,
+            "has_more": True,
+            "next_offset": 2,
+        }
+
+        response = client.get("/api/v1/document/v93000/smt7/100096.md?limit=1&offset=1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["source_md"] == "v93000/smt7/100096.md"
+        assert data["total"] == 12
+        assert data["returned"] == 1
+        assert data["offset"] == 1
+        assert data["limit"] == 1
+        assert data["has_more"] is True
+        assert data["next_offset"] == 2
+        assert data["chunks"][0]["id"] == "c2"
+        mock_retriever.get_document_page.assert_awaited_with(
+            "v93000/smt7/100096.md",
+            limit=1,
+            offset=1,
+        )

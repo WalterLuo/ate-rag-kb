@@ -147,6 +147,10 @@ or equivalent:
 
 Restart Claude Code. The agent will auto-discover `ate_kb.*` tools.
 
+Do not add API keys to the MCP JSON. If you use a cloud embedding or reranker
+provider, export the key (for example `SILICONFLOW_API_KEY`) in the parent
+process environment before starting the agent so the MCP server inherits it.
+
 ### Option 2: HTTP API
 
 If MCP is unavailable, configure Claude Code to call the FastAPI endpoints

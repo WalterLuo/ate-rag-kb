@@ -138,6 +138,25 @@ class TestMcpToolHandler:
         assert result.answer_contract.completeness_required is False
 
     @pytest.mark.asyncio
+    async def test_handle_retrieve_reports_reranker_fallback(
+        self, handler: McpToolHandler
+    ) -> None:
+        chunk = self._make_chunk()
+        handler.pipeline.retrieve_enriched = AsyncMock(return_value=[(chunk, 0.85)])
+        handler.pipeline._last_retrieval_stats = {
+            "reranker_fallback_used": True,
+            "reranker_error_type": "RuntimeError",
+            "reranker_error": "rate limited",
+        }
+
+        result = await handler.handle_retrieve({"query": "test"})
+
+        assert result.processing["reranker_fallback_used"] is True
+        assert result.processing["reranker_error_type"] == "RuntimeError"
+        assert result.processing["reranker_error"] == "rate limited"
+        assert result.processing["reranked"] is False
+
+    @pytest.mark.asyncio
     async def test_handle_retrieve_returns_broad_answer_contract(
         self, handler: McpToolHandler
     ) -> None:

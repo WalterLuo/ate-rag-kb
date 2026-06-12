@@ -118,6 +118,32 @@ A complete broad answer should cover, when applicable:
 Do not invent unsupported details. If a detail is plausible but not found in
 the current KB context, label it as not confirmed by the KB.
 
+#### Cross-Agent Answer Quality Alignment
+
+For broad ATE concept answers, Claude Code, Codex, and other agents should use
+the same engineer-facing answer standard. Optimize for grounded completeness
+over brevity when the question asks "what is", "what does it do", "how does it
+work", or otherwise asks for a concept overview.
+
+A high-quality aligned answer should:
+
+1. Separate concept layers clearly, for example UI/window behavior versus
+   testflow/test-suite flags versus command/API behavior.
+2. Use compact tables when comparing states, modes, flags, commands, or
+   configuration fields.
+3. Include practical execution behavior, examples, and debug consequences
+   discovered from related KB pages, not only the first definition chunk.
+4. Call out important caveats such as default behavior, unavailable states,
+   focus/query side effects, data-loss risks, and when settings are ignored.
+5. Cite every major claim with the retrieved `source_md` and `section_title`.
+6. Avoid treating a concise answer as sufficient when related documents expose
+   operational details needed by a test engineer.
+
+When comparing or calibrating answers across agents, prefer the answer that is
+more complete, better structured, and better grounded in retrieved KB context,
+even if it is longer. Keep the answer concise enough to read, but do not omit
+engineering details that affect setup, execution, debug, or result analysis.
+
 Example: For Site Control questions, inspect related documents such as
 `v93000/smt7/100118.md`, `v93000/smt7/100096.md`,
 `v93000/smt7/100168.md`, `v93000/smt7/13863.md`,

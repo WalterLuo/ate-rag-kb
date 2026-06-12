@@ -254,6 +254,11 @@ GPU-accelerated inference without a local GPU.
 export SILICONFLOW_API_KEY="your-api-key-here"
 ```
 
+Do not put real API keys in `.mcp.json`, `.claude/settings.json`, Cursor MCP
+settings, or other agent configuration files. MCP server configs should inherit
+`SILICONFLOW_API_KEY` from the parent process environment and only contain
+non-sensitive values such as `CONFIG_PATH`.
+
 3. Update `configs/config.yaml`:
 
 ```yaml
@@ -442,6 +447,11 @@ If you prefer manual configuration, add to `~/.claude/settings.json`
 ```
 
 Restart Claude Code. The agent will auto-discover `ate_kb.*` tools.
+
+If you use the HTTP reranker or cloud embedding provider, export
+`SILICONFLOW_API_KEY` before starting Claude Code or the MCP client. Keep the
+key out of this JSON block; it should be inherited from the parent process
+environment.
 
 ### Default Agent Behavior
 

@@ -128,6 +128,9 @@ chunking:
 
 # Retrieval configuration
 retrieval:
+  timing:
+    enabled: true
+    log_threshold_ms: 500
   vector_search:
     top_k: 20
   sparse_search:
@@ -146,16 +149,27 @@ retrieval:
     legacy_bm25_fallback: true
   reranker:
     enabled: true
-    provider: "${ATE_KB_RERANKER_PROVIDER:-local}"
+    provider: "${ATE_KB_RERANKER_PROVIDER:-http}"
+    fallback_on_error: true
     model_name: "${ATE_KB_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}"
     top_k: 5
     batch_size: 4
     device: "${ATE_KB_RERANKER_DEVICE:-cpu}"
+    # Rerank input shaping: limits what is sent to the reranker API
+    input:
+      max_candidates: 32
+      max_chars_per_document: 2400
+      max_chunks_per_source: 2
+      min_sources: 6
+      prefer_section_chunks: true
+      preserve_title_matches: 3
     api:
       base_url: "${ATE_KB_RERANKER_BASE_URL:-https://api.siliconflow.cn/v1}"
       api_key_env: "${ATE_KB_RERANKER_API_KEY_ENV:-SILICONFLOW_API_KEY}"
-      timeout_seconds: 60
-      top_n: 40
+      timeout_seconds: 30
+      top_n: 32
+      max_chunks_per_doc: 8
+      overlap_tokens: 40
     # Broad-concept query overrides
     broad_candidate_top_k: 40
     broad_final_top_k: 14
