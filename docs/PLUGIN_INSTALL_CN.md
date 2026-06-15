@@ -2,27 +2,22 @@
 
 本文档介绍如何在各种 AI CLI 工具中安装和配置 **ate-rag-kb** 插件或 MCP 扩展。
 
-## 前置条件（所有平台）
+## 安装模式
 
-在将 ate-rag-kb 安装到任何 AI 工具之前，请先确保项目本身已准备就绪：
+有两条有效路径：
 
-1. **Python 3.10+** 并安装 [`uv`](https://docs.astral.sh/uv/)
-2. **克隆仓库**并安装依赖：
-   ```bash
-   git clone https://github.com/WalterLuo/ate-rag-kb.git
-   cd ate-rag-kb
-   uv sync
-   ```
-3. **模型**已下载到 `embeddings/cache/`（见 `scripts/package_models.py`）
-4. **Qdrant** 正在运行（本地或远程）且文档已导入：
-   ```bash
-   uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
-   ```
+1. **本地 checkout 部署：** clone 仓库，在该 checkout 中准备模型、文档和 Qdrant
+   数据，然后运行 `scripts/install_mcp.py`。Agent 配置会指向这个明确的绝对路径。
+2. **Marketplace/plugin 部署：** AI 工具把插件 clone 到自己的插件缓存目录，并读取
+   插件根目录的 `.mcp.json`。默认从该缓存目录启动，不会自动复用另一处手动 clone。
 
-## 快速设置（推荐）
+共享的 MCP 入口是 `scripts/start_mcp.py`。`uv run` 会创建或复用 Python 环境；
+当 `ATE_KB_AUTO_BOOTSTRAP=1` 时，wrapper 会通过 Docker Compose 启动 Qdrant。
+授权源文档、模型缓存或云端 API 凭据、以及文档导入仍然是部署前提。
 
-运行自动安装程序，为所有检测到的 AI CLI 工具配置 MCP server，并安装托管的
-ATE KB Routing policy：
+## 本地 checkout 设置
+
+clone 并准备好项目后运行：
 
 ```bash
 uv run python scripts/install_mcp.py --install-agent-policy
@@ -48,6 +43,15 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 
 这不推荐用于 Codex projectless 会话，因为仓库里的 `AGENTS.md` 可能不会被加载。
 
+生成的 MCP 配置会运行：
+
+```text
+uv run --project /path/to/ate-rag-kb python /path/to/ate-rag-kb/scripts/start_mcp.py
+```
+
+并在 server 环境中设置 `ATE_RAG_KB_PROJECT_ROOT`、`CONFIG_PATH` 和
+`ATE_KB_AUTO_BOOTSTRAP=1`。
+
 ---
 
 ## 各平台安装方式
@@ -68,8 +72,14 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 ```
 
 Marketplace 和 git 插件安装会自带插件根目录 `.mcp.json`，使用
-`${CLAUDE_PLUGIN_ROOT}` 自动注册 `ate-kb` stdio MCP server。安装后重启
-Claude Code，然后运行 `/mcp` 或直接提出 ATE 问题验证 server 是否可见。
+`${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py` 自动注册 `ate-kb` stdio MCP
+server。安装后重启 Claude Code，然后运行 `/mcp` 或直接提出 ATE 问题验证
+server 是否可见。
+
+如果你已经准备了一个本地 checkout，不要期望 marketplace clone 自动复用它。
+优先运行 `uv run python scripts/install_mcp.py --install-agent-policy`，或在启动
+Claude Code 前设置 `ATE_RAG_KB_PROJECT_ROOT`，必要时再设置
+`ATE_RAG_KB_CONFIG_PATH` 指向已准备好的 checkout。
 
 **手动 MCP 配置（仅作为 fallback）：**
 
@@ -82,7 +92,18 @@ Claude Code，然后运行 `/mcp` 或直接提出 ATE 问题验证 server 是否
   "mcpServers": {
     "ate_kb": {
       "command": "uv",
-      "args": ["run", "-m", "ate_rag_kb.cli.main", "mcp"]
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
+      ],
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -123,7 +144,18 @@ Cursor 插件 manifest 同样引用 `mcpServers: "./.mcp.json"`，兼容的插�
   "mcpServers": {
     "ate_kb": {
       "command": "uv",
-      "args": ["run", "-m", "ate_rag_kb.cli.main", "mcp"]
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
+      ],
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -164,7 +196,18 @@ codex plugin marketplace add /path/to/ate-rag-kb/.agents/plugins/marketplace.jso
   "mcpServers": {
     "ate_kb": {
       "command": "uv",
-      "args": ["run", "-m", "ate_rag_kb.cli.main", "mcp"]
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
+      ],
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -254,15 +297,16 @@ droid plugin install ate-rag-kb@ate-rag-kb
 | Codex | `.codex-plugin/plugin.json` |
 | Gemini CLI | `gemini-extension.json`, `GEMINI.md` |
 | OpenCode | `.opencode/INSTALL.md` |
-| 所有 MCP 工具 | `scripts/install_mcp.py` |
+| 所有 MCP 工具 | `scripts/start_mcp.py`, `scripts/install_mcp.py` |
 
 ## 故障排查
 
 ### MCP server 无法启动
 
-1. 在项目根目录下手动运行 `uv run -m ate_rag_kb.cli.main mcp` 验证是否正常。
-2. 检查 `embeddings/cache/` 中模型是否存在。
-3. 确保 Qdrant 可访问（检查 `configs/config.yaml`）。
+1. 在项目根目录下手动运行 `uv run python scripts/start_mcp.py` 验证是否正常。
+2. 如果关闭了 Docker bootstrap，确认 Qdrant 在配置的 URL 上可访问。
+3. 检查 `embeddings/cache/` 中模型是否存在，或确认云端 API 凭据已设置。
+4. 确认授权文档已经导入到 Qdrant collection。
 
 ### 插件未加载
 
@@ -281,7 +325,7 @@ uv run python scripts/verify_models.py
 
 ## 架构说明
 
-- **MCP 优先：** 所有支持 MCP 的工具（Claude Code、Cursor、Codex、Copilot Chat）都连接到同一个 `ate_rag_kb.cli.main mcp` stdio server。
+- **MCP 优先：** 所有支持 MCP 的工具（Claude Code、Cursor、Codex、Copilot Chat）都使用 `scripts/start_mcp.py`，它会 exec 到同一个 `ate_rag_kb.cli.main mcp` stdio server。
 - **路由 skill：** `skills/ate-kb-router/SKILL.md` 让支持 skill 的 agent 在 web 或 shell 降级前先暴露并调用 `ate_kb`。
 - **托管 policy：** `scripts/install_mcp.py --install-agent-policy` 会追加或更新全局 agent 指令中的 ATE KB Routing 块，不覆盖用户原有规则。
 - **上下文文件：** `CLAUDE.md`、`GEMINI.md` 和 `AGENTS.md` 提供各工具专属指令，让 AI 知道如何使用 `ate_kb` 工具。

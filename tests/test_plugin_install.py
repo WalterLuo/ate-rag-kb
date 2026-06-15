@@ -75,11 +75,12 @@ def test_mcp_config_uses_absolute_project_path_and_config_path(tmp_path: Path) -
         "run",
         "--project",
         str(project_root),
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp",
+        "python",
+        str(project_root / "scripts" / "start_mcp.py"),
     ]
+    assert config["env"]["ATE_RAG_KB_PROJECT_ROOT"] == str(project_root)
     assert config["env"]["CONFIG_PATH"] == str(project_root / "configs" / "config.yaml")
+    assert config["env"]["ATE_KB_AUTO_BOOTSTRAP"] == "1"
 
 
 def test_plugin_root_mcp_config_is_portable_for_marketplace_installs() -> None:
@@ -94,18 +95,19 @@ def test_plugin_root_mcp_config_is_portable_for_marketplace_installs() -> None:
                     "run",
                     "--project",
                     "${CLAUDE_PLUGIN_ROOT}",
-                    "-m",
-                    "ate_rag_kb.cli.main",
-                    "mcp",
+                    "python",
+                    "${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py",
                 ],
                 "env": {
-                    "CONFIG_PATH": "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
                     "ATE_KB_QUERY_DEVICE": "cpu",
                     "ATE_KB_RERANKER_DEVICE": "cpu",
+                    "ATE_KB_AUTO_BOOTSTRAP": "1",
                 },
             }
         }
     }
+    assert "ATE_RAG_KB_PROJECT_ROOT" not in config["mcpServers"]["ate-kb"]["env"]
+    assert "CONFIG_PATH" not in config["mcpServers"]["ate-kb"]["env"]
 
 
 def test_agent_plugin_manifests_reference_portable_mcp_config() -> None:

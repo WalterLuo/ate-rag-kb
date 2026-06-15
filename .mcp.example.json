@@ -6,14 +6,15 @@
         "run",
         "--project",
         "/path/to/ate-rag-kb",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
       "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
         "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
         "ATE_KB_QUERY_DEVICE": "cpu",
-        "ATE_KB_RERANKER_DEVICE": "cpu"
+        "ATE_KB_RERANKER_DEVICE": "cpu",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }

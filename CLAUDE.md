@@ -189,7 +189,7 @@ uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental
 uv run -m ate_rag_kb.cli.main serve --host 0.0.0.0 --port 8080
 
 # Start MCP server
-uv run -m ate_rag_kb.cli.main mcp
+uv run python scripts/start_mcp.py
 
 # Search from CLI (developer/debugging fallback; not the default agent path)
 uv run -m ate_rag_kb.cli.main search "timing set configuration" --top-k 5

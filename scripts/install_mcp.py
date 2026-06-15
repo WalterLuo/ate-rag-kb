@@ -121,12 +121,15 @@ def build_mcp_server_config(project_root: Path) -> dict[str, Any]:
             "run",
             "--project",
             str(resolved_root),
-            "-m",
-            "ate_rag_kb.cli.main",
-            "mcp",
+            "python",
+            str(resolved_root / "scripts" / "start_mcp.py"),
         ],
         "env": {
+            "ATE_RAG_KB_PROJECT_ROOT": str(resolved_root),
             "CONFIG_PATH": str(resolved_root / "configs" / "config.yaml"),
+            "ATE_KB_QUERY_DEVICE": "cpu",
+            "ATE_KB_RERANKER_DEVICE": "cpu",
+            "ATE_KB_AUTO_BOOTSTRAP": "1",
         },
     }
 
@@ -447,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logger.info("")
     logger.info("Test the MCP server manually:")
-    logger.info("  uv run -m ate_rag_kb.cli.main mcp")
+    logger.info("  uv run python scripts/start_mcp.py")
     logger.info("")
     logger.info("Validate plugin installation:")
     logger.info("  uv run python scripts/validate_plugin_install.py")

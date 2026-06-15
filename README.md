@@ -66,10 +66,27 @@ docker --version
 
 ---
 
-## Quick Start (15–30 min)
+## Choose an Install Path
+
+Use one of these paths. They are related, but they do not automatically map to
+each other.
+
+| Path | What it configures | Use when |
+|------|--------------------|----------|
+| **Local checkout deployment** | You clone this repo, prepare models/docs/Qdrant in that folder, then `scripts/install_mcp.py` writes agent settings that point to that exact absolute path. | You already have private ATE docs, model cache, or ingested Qdrant data on this machine. |
+| **Marketplace/plugin deployment** | The AI tool clones the plugin into its plugin cache and reads the plugin-root `.mcp.json`. The MCP server starts from that plugin cache by default. | You want plugin-managed installation and understand it is a separate checkout from any manual clone. |
+
+Do not clone and prepare one folder, then install the marketplace plugin
+expecting the plugin to reuse that folder automatically. Use the local checkout
+installer for that case, or explicitly set `ATE_RAG_KB_PROJECT_ROOT` for the
+plugin wrapper.
+
+---
+
+## Quick Start — Local Checkout Deployment (15–30 min)
 
 Every command and path below assumes you are **inside the `ate-rag-kb`
-folder** (the "project root").
+folder** (the "project root"). This path configures agents to this checkout.
 
 ### 1. Clone the repository
 
@@ -132,7 +149,13 @@ uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
 uv run python scripts/install_mcp.py --install-agent-policy
 ```
 
-Or see [Agent Integration](#agent-integration) below for manual configuration.
+This writes MCP settings that call `scripts/start_mcp.py` from this checkout and
+set `ATE_RAG_KB_PROJECT_ROOT` to this absolute path. Do not run the marketplace
+install as a replacement for this step unless you intentionally want a separate
+plugin-cache deployment.
+
+See [Agent Integration](#agent-integration) below for marketplace and manual
+configuration details.
 
 ### 8. Validate and restart
 
@@ -143,10 +166,10 @@ uv run python scripts/validate_agent_routing_policy.py
 
 Then restart Codex / Claude Code / Cursor.
 
-### 9. Start the MCP server (for agent integration)
+### 9. Start the MCP server directly (optional troubleshooting)
 
 ```bash
-uv run -m ate_rag_kb.cli.main mcp
+uv run python scripts/start_mcp.py
 ```
 
 Or start the HTTP API (for direct access):
@@ -459,15 +482,10 @@ vector database snapshots unless you have explicit redistribution rights.
 
 ## Agent Integration
 
-### Multi-Harness Plugin Installation (Recommended)
+### Local Checkout Agent Configuration
 
-ATE RAG KB can be installed as a plugin in multiple AI CLI tools. The plugin
-manifests include a portable `.mcp.json`, so marketplace/plugin installs can
-load the `ate-kb` MCP server without hand-editing agent settings.
-
-Use the installer when you want to configure already-cloned local checkouts,
-install global agent routing policy, or support tools that do not consume the
-plugin manifest directly:
+Use this after the local checkout quick start. The installer configures detected
+AI tools to run the MCP server from the checkout you prepared:
 
 ```bash
 # Configure all detected AI CLI tools
@@ -482,6 +500,16 @@ uv run python scripts/install_mcp.py --harness claude,cursor
 # Configure MCP only, without global agent policy (not recommended for projectless sessions)
 uv run python scripts/install_mcp.py --skip-agent-policy
 ```
+
+The generated MCP settings use `uv run --project <checkout> python
+<checkout>/scripts/start_mcp.py`, set `ATE_RAG_KB_PROJECT_ROOT` to the checkout,
+and enable Qdrant bootstrap with `ATE_KB_AUTO_BOOTSTRAP=1`.
+
+### Marketplace Plugin Installation
+
+Marketplace/plugin installation is a separate path. The AI tool clones the
+plugin into its plugin cache; it does not automatically reuse a manual clone
+that you prepared elsewhere.
 
 #### Per-Harness Quick Install
 
@@ -502,7 +530,7 @@ For local or team Codex marketplace installs, register this repository's
 Codex marketplace search requires publishing or registering the marketplace
 outside this repository.
 
-### Claude Code (MCP — Auto Config)
+### Claude Code (MCP — Marketplace Auto Config)
 
 Marketplace and plugin installs include a plugin-root `.mcp.json`:
 
@@ -515,22 +543,34 @@ Marketplace and plugin installs include a plugin-root `.mcp.json`:
         "run",
         "--project",
         "${CLAUDE_PLUGIN_ROOT}",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "python",
+        "${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py"
       ],
       "env": {
-        "CONFIG_PATH": "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
         "ATE_KB_QUERY_DEVICE": "cpu",
-        "ATE_KB_RERANKER_DEVICE": "cpu"
+        "ATE_KB_RERANKER_DEVICE": "cpu",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }
 }
 ```
 
+On startup, `uv run` creates or reuses the plugin Python environment,
+`scripts/start_mcp.py` resolves the project root, derives `CONFIG_PATH`, starts
+Qdrant with Docker Compose when `ATE_KB_AUTO_BOOTSTRAP=1`, and then execs the
+real `ate_rag_kb.cli.main mcp` server.
+
 Restart Claude Code after installing the plugin. The agent will auto-discover
-`ate_kb.*` tools from the plugin-provided MCP server.
+`ate_kb.*` tools from the plugin-provided MCP server. Authorized source docs,
+model cache or cloud API credentials, and ingestion are still deployment
+prerequisites; the plugin cannot redistribute or invent your private ATE docs.
+
+If you already prepared a local checkout and want agents to use it, prefer
+`uv run python scripts/install_mcp.py --install-agent-policy`. Advanced users
+can launch the agent with `ATE_RAG_KB_PROJECT_ROOT=/path/to/ate-rag-kb` and,
+if needed, `ATE_RAG_KB_CONFIG_PATH=/path/to/ate-rag-kb/configs/config.yaml`;
+the wrapper reads those variables before falling back to the plugin cache.
 
 Manual configuration is only needed if you are not using the plugin installer.
 In that case, add to `~/.claude/settings.json` (macOS / Linux) or
@@ -545,12 +585,13 @@ In that case, add to `~/.claude/settings.json` (macOS / Linux) or
         "run",
         "--project",
         "/path/to/ate-rag-kb",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }

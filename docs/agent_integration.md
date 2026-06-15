@@ -133,12 +133,13 @@ or equivalent:
         "run",
         "--project",
         "/path/to/ate-rag-kb",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }
@@ -171,11 +172,16 @@ OpenClaw supports MCP servers. Add the following to your OpenClaw configuration:
       "command": "uv",
       "args": [
         "run",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
-      "cwd": "/path/to/ate-rag-kb"
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -193,12 +199,15 @@ configure it similarly to Claude Code:
       "command": "uv",
       "args": [
         "run",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }
@@ -218,8 +227,8 @@ Before onboarding engineers, complete the formal validation steps:
   for Q2 ARRAY, Q1/Q3/Q5 completeness, and pagination
 
 Quick-start MCP config for plugin installs is now bundled in the tracked
-plugin-root `.mcp.json` and uses `${CLAUDE_PLUGIN_ROOT}`. For manual, non-plugin
-setups, copy the example configuration:
+plugin-root `.mcp.json` and runs `${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py`.
+For manual, non-plugin setups, copy the example configuration:
 
 ```bash
 cp .mcp.example.json .mcp.json
@@ -411,4 +420,4 @@ If both are low, the reranker or graph expander may need tuning.
 | Empty results | Verify documents are ingested (`ate_kb.status`) |
 | Slow responses | Check Qdrant is running; consider reducing `top_k` |
 | Wrong platform results | Add `filters: {"platform": "TDC"}` to queries |
-| `mcp` command not found | Run `uv sync` to install MCP dependencies |
+| `uv` command not found | Install `uv`; the MCP wrapper uses `uv run` to create or reuse the project environment |

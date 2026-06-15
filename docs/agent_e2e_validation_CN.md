@@ -59,7 +59,7 @@ uv run -m ate_rag_kb.cli.main status
 ## 3. MCP 配置
 
 Marketplace/plugin 安装会自带已跟踪的插件根目录 `.mcp.json`，它使用
-`${CLAUDE_PLUGIN_ROOT}`，不需要手动编辑 agent 设置。
+`${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py`，不需要手动编辑 agent 设置。
 
 如果是非插件的手动配置，复制示例配置：
 
@@ -82,12 +82,13 @@ cp .mcp.example.json .mcp.json
         "run",
         "--project",
         "/path/to/ate-rag-kb",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }
@@ -105,7 +106,7 @@ cp .mcp.example.json .mcp.json
 ## 4. 启动 MCP Server
 
 ```bash
-uv run -m ate_rag_kb.cli.main mcp
+uv run python scripts/start_mcp.py
 ```
 
 重要说明：
@@ -295,8 +296,8 @@ SMT7中site control的作用是什么
 | 症状 | 可能原因 | 解决方案 |
 |---------|--------------|----------|
 | 工具未出现 | MCP 配置路径错误 | 验证 `.mcp.json` / Claude Code 配置使用绝对路径 |
-| `CONFIG_PATH` 错误 | 配置文件缺失或路径为相对路径 | 使用 `configs/config.yaml` 的绝对路径 |
-| `status` 失败 | Qdrant server 未运行 | 启动 Qdrant：`docker compose up -d qdrant` |
+| `CONFIG_PATH` 错误 | 配置文件缺失或路径为相对路径 | 使用 `scripts/start_mcp.py` 或设置 `configs/config.yaml` 的绝对路径 |
+| `status` 失败 | Qdrant server 未运行 | 保留 `ATE_KB_AUTO_BOOTSTRAP=1` 或手动启动 Qdrant：`docker compose up -d qdrant` |
 | `status` 失败 | 未导入或 collection 为空 | 重新运行 `uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental` |
 | `status` 失败 | `portalocker.AlreadyLocked` | Local file mode 已废弃且不受支持。请使用 server mode：`docker compose up -d qdrant`，并在 `configs/config.yaml` 中设置 `vector_store.mode: server` |
 | 响应非常慢 | 首次加载模型或 `top_k` 过大 | 等待 embedding 模型缓存预热；减小 `configs/config.yaml` 中的 `top_k` |

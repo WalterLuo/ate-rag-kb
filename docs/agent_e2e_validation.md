@@ -60,7 +60,8 @@ If `status` fails or `total_chunks` is `0`:
 ## 3. MCP Configuration
 
 Marketplace/plugin installs include the tracked plugin-root `.mcp.json`, which
-uses `${CLAUDE_PLUGIN_ROOT}` and does not require editing agent settings.
+uses `${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py` and does not require editing
+agent settings.
 
 For manual, non-plugin setups, copy the example configuration:
 
@@ -85,12 +86,13 @@ Add the server to `~/Library/Application Support/Claude/claude_desktop_config.js
         "run",
         "--project",
         "/path/to/ate-rag-kb",
-        "-m",
-        "ate_rag_kb.cli.main",
-        "mcp"
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
       ],
       "env": {
-        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml"
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
       }
     }
   }
@@ -110,7 +112,7 @@ restart the agent.
 ## 4. Start the MCP Server
 
 ```bash
-uv run -m ate_rag_kb.cli.main mcp
+uv run python scripts/start_mcp.py
 ```
 
 Important notes:
@@ -309,8 +311,8 @@ For the exact post-fix retest flow, use
 | Symptom | Likely Cause | Solution |
 |---------|--------------|----------|
 | Tools do not appear | MCP config path is wrong | Verify `.mcp.json` / Claude Code config uses absolute paths |
-| `CONFIG_PATH` error | Config file missing or path is relative | Use absolute path to `configs/config.yaml` |
-| `status` fails | Qdrant server not running | Start Qdrant: `docker compose up -d qdrant` |
+| `CONFIG_PATH` error | Config file missing or path is relative | Use `scripts/start_mcp.py` or set an absolute path to `configs/config.yaml` |
+| `status` fails | Qdrant server not running | Keep `ATE_KB_AUTO_BOOTSTRAP=1` or start Qdrant: `docker compose up -d qdrant` |
 | `status` fails | No ingestion or collection empty | Re-run `uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown --incremental` |
 | `status` fails | `portalocker.AlreadyLocked` | Local file mode is deprecated and unsupported. Use server mode: `docker compose up -d qdrant` and set `vector_store.mode: server` in `configs/config.yaml` |
 | Very slow responses | First-time model load or oversized `top_k` | Wait for embedding model cache to warm up; reduce `top_k` in `configs/config.yaml` |

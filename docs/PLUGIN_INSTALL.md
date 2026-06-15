@@ -3,27 +3,25 @@
 This document describes how to install and configure **ate-rag-kb** as a plugin
 or MCP extension in various AI CLI tools.
 
-## Prerequisites (All Platforms)
+## Installation Model
 
-Before installing into any harness, ensure the project itself is ready:
+There are two valid setup paths:
 
-1. **Python 3.10+** with [`uv`](https://docs.astral.sh/uv/) installed
-2. **Clone the repo** and install dependencies:
-   ```bash
-   git clone https://github.com/WalterLuo/ate-rag-kb.git
-   cd ate-rag-kb
-   uv sync
-   ```
-3. **Models** downloaded to `embeddings/cache/` (see `scripts/package_models.py`)
-4. **Qdrant** running (local or remote) and documents ingested:
-   ```bash
-   uv run -m ate_rag_kb.cli.main ingest --dir ./data/raw/markdown
-   ```
+1. **Local checkout deployment:** clone the repo, prepare models/docs/Qdrant in
+   that checkout, then run `scripts/install_mcp.py`. Agent settings point to
+   that exact absolute path.
+2. **Marketplace/plugin deployment:** the AI tool clones the plugin into its own
+   plugin cache and reads the plugin-root `.mcp.json`. It starts from that cache
+   by default and does not automatically reuse a separate manual clone.
 
-## Quick Setup (Recommended)
+The shared MCP entrypoint is `scripts/start_mcp.py`. `uv run` creates or reuses
+the Python environment, and the wrapper starts Qdrant with Docker Compose when
+`ATE_KB_AUTO_BOOTSTRAP=1`. Authorized source docs, model cache or cloud API
+credentials, and ingestion are still deployment prerequisites.
 
-Run the automatic installer to configure all detected harnesses and install the
-managed ATE KB Routing policy:
+## Local Checkout Setup
+
+Use this after cloning and preparing the project:
 
 ```bash
 uv run python scripts/install_mcp.py --install-agent-policy
@@ -56,6 +54,15 @@ uv run python scripts/install_mcp.py --skip-agent-policy
 This is not recommended for Codex projectless sessions because the repository
 `AGENTS.md` may not be loaded.
 
+The generated MCP config runs:
+
+```text
+uv run --project /path/to/ate-rag-kb python /path/to/ate-rag-kb/scripts/start_mcp.py
+```
+
+with `ATE_RAG_KB_PROJECT_ROOT`, `CONFIG_PATH`, and
+`ATE_KB_AUTO_BOOTSTRAP=1` in the server environment.
+
 ---
 
 ## Per-Harness Installation
@@ -77,8 +84,14 @@ This is not recommended for Codex projectless sessions because the repository
 
 Marketplace and git plugin installs include a plugin-root `.mcp.json` that
 registers the `ate-kb` stdio MCP server automatically using
-`${CLAUDE_PLUGIN_ROOT}`. Restart Claude Code after installation, then run `/mcp`
-or ask an ATE question to verify the server is visible.
+`${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py`. Restart Claude Code after
+installation, then run `/mcp` or ask an ATE question to verify the server is
+visible.
+
+If you already prepared a local checkout, do not expect the marketplace clone
+to reuse it automatically. Prefer `uv run python scripts/install_mcp.py
+--install-agent-policy`, or launch Claude Code with `ATE_RAG_KB_PROJECT_ROOT`
+and optionally `ATE_RAG_KB_CONFIG_PATH` pointing at the prepared checkout.
 
 **Manual MCP Configuration (fallback only):**
 
@@ -91,7 +104,18 @@ supports MCP servers via `settings.json`; add:
   "mcpServers": {
     "ate_kb": {
       "command": "uv",
-      "args": ["run", "-m", "ate_rag_kb.cli.main", "mcp"]
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
+      ],
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -132,7 +156,18 @@ If the Cursor plugin flow does not load MCP automatically, use `.cursor/mcp.json
   "mcpServers": {
     "ate_kb": {
       "command": "uv",
-      "args": ["run", "-m", "ate_rag_kb.cli.main", "mcp"]
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
+      ],
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -176,7 +211,18 @@ If you are not using the plugin flow, Codex also supports MCP servers. Add to
   "mcpServers": {
     "ate_kb": {
       "command": "uv",
-      "args": ["run", "-m", "ate_rag_kb.cli.main", "mcp"]
+      "args": [
+        "run",
+        "--project",
+        "/path/to/ate-rag-kb",
+        "python",
+        "/path/to/ate-rag-kb/scripts/start_mcp.py"
+      ],
+      "env": {
+        "ATE_RAG_KB_PROJECT_ROOT": "/path/to/ate-rag-kb",
+        "CONFIG_PATH": "/path/to/ate-rag-kb/configs/config.yaml",
+        "ATE_KB_AUTO_BOOTSTRAP": "1"
+      }
     }
   }
 }
@@ -269,15 +315,16 @@ droid plugin install ate-rag-kb@ate-rag-kb
 | Codex | `.codex-plugin/plugin.json` |
 | Gemini CLI | `gemini-extension.json`, `GEMINI.md` |
 | OpenCode | `.opencode/INSTALL.md` |
-| All MCP tools | `scripts/install_mcp.py` |
+| All MCP tools | `scripts/start_mcp.py`, `scripts/install_mcp.py` |
 
 ## Troubleshooting
 
 ### MCP server not starting
 
-1. Verify `uv run -m ate_rag_kb.cli.main mcp` works from the project root.
-2. Check that models exist in `embeddings/cache/`.
-3. Ensure Qdrant is reachable (check `configs/config.yaml`).
+1. Verify `uv run python scripts/start_mcp.py` works from the project root.
+2. If Docker bootstrap is disabled, ensure Qdrant is reachable at the configured URL.
+3. Check that models exist in `embeddings/cache/` or that cloud API credentials are set.
+4. Confirm authorized documents were ingested into the Qdrant collection.
 
 ### Plugin not loading
 
@@ -298,7 +345,8 @@ uv run python scripts/verify_models.py
 ## Architecture Notes
 
 - **MCP-first:** All harnesses that support MCP (Claude Code, Cursor, Codex,
-  Copilot Chat) connect to the same `ate_rag_kb.cli.main mcp` stdio server.
+  Copilot Chat) use `scripts/start_mcp.py`, which execs the same
+  `ate_rag_kb.cli.main mcp` stdio server.
 - **Routing skill:** `skills/ate-kb-router/SKILL.md` tells skill-aware agents to
   expose and call `ate_kb` before web or shell fallbacks.
 - **Managed policy:** `scripts/install_mcp.py --install-agent-policy` appends or

@@ -74,6 +74,8 @@ def main() -> int:
     claude = read(PROJECT_ROOT / "CLAUDE.md")
     gemini = read(PROJECT_ROOT / "GEMINI.md")
     installer = read(PROJECT_ROOT / "scripts" / "install_mcp.py")
+    start_mcp_path = PROJECT_ROOT / "scripts" / "start_mcp.py"
+    start_mcp = read(start_mcp_path) if start_mcp_path.exists() else ""
     plugin_mcp = json.loads(read(PROJECT_ROOT / ".mcp.json"))
     plugin_mcp_server = plugin_mcp.get("mcpServers", {}).get("ate-kb", {})
     claude_plugin = json.loads(read(PROJECT_ROOT / ".claude-plugin" / "plugin.json"))
@@ -89,23 +91,36 @@ def main() -> int:
     require("ate_kb.ask" in gemini, "GEMINI.md missing ate_kb.ask rule", errors)
     require("--install-agent-policy" in installer, "install_mcp.py missing --install-agent-policy", errors)
     require("--skip-agent-policy" in installer, "install_mcp.py missing --skip-agent-policy", errors)
+    require(start_mcp_path.exists(), "Missing scripts/start_mcp.py", errors)
+    require("ATE_RAG_KB_PROJECT_ROOT" in start_mcp, "start_mcp.py missing project root override", errors)
+    require("ATE_KB_AUTO_BOOTSTRAP" in start_mcp, "start_mcp.py missing Qdrant bootstrap switch", errors)
+    require("scripts/start_mcp.py" in installer, "install_mcp.py must configure start_mcp.py", errors)
     require(
         plugin_mcp_server.get("args")
         == [
             "run",
             "--project",
             "${CLAUDE_PLUGIN_ROOT}",
-            "-m",
-            "ate_rag_kb.cli.main",
-            "mcp",
+            "python",
+            "${CLAUDE_PLUGIN_ROOT}/scripts/start_mcp.py",
         ],
-        ".mcp.json must use ${CLAUDE_PLUGIN_ROOT} for --project",
+        ".mcp.json must run scripts/start_mcp.py from ${CLAUDE_PLUGIN_ROOT}",
+        errors,
+    )
+    plugin_env = plugin_mcp_server.get("env", {})
+    require(
+        "ATE_RAG_KB_PROJECT_ROOT" not in plugin_env,
+        ".mcp.json must not pin ATE_RAG_KB_PROJECT_ROOT; start_mcp.py resolves it",
         errors,
     )
     require(
-        plugin_mcp_server.get("env", {}).get("CONFIG_PATH")
-        == "${CLAUDE_PLUGIN_ROOT}/configs/config.yaml",
-        ".mcp.json must use ${CLAUDE_PLUGIN_ROOT} for CONFIG_PATH",
+        "CONFIG_PATH" not in plugin_env,
+        ".mcp.json must not pin CONFIG_PATH; start_mcp.py derives it from the project root",
+        errors,
+    )
+    require(
+        plugin_env.get("ATE_KB_AUTO_BOOTSTRAP") == "1",
+        ".mcp.json must enable start_mcp.py Qdrant bootstrap",
         errors,
     )
     for name, manifest in [
@@ -119,6 +134,7 @@ def main() -> int:
             errors,
         )
     require('"--project"' in mcp_example, ".mcp.example.json must use --project", errors)
+    require("scripts/start_mcp.py" in mcp_example, ".mcp.example.json must run start_mcp.py", errors)
     require("CONFIG_PATH" in mcp_example, ".mcp.example.json must include CONFIG_PATH", errors)
 
     if errors:
