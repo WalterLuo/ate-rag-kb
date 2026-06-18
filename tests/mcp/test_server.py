@@ -20,16 +20,38 @@ def mock_config():
 
 @pytest.fixture
 def app(mock_config):
-    with patch("ate_rag_kb.mcp.server.RetrievalPipeline") as mock_pipeline_cls, \
-         patch("ate_rag_kb.mcp.server.McpToolHandler") as mock_handler_cls:
+    with (
+        patch("ate_rag_kb.mcp.server.RetrievalPipeline") as mock_pipeline_cls,
+        patch("ate_rag_kb.mcp.server.build_retrieval_coordinator") as mock_build_coordinator,
+        patch("ate_rag_kb.mcp.server.McpToolHandler") as mock_handler_cls,
+    ):
         mock_pipeline = AsyncMock()
         mock_pipeline_cls.return_value = mock_pipeline
+        mock_build_coordinator.return_value = object()
         mock_handler = AsyncMock()
         mock_handler_cls.return_value = mock_handler
         yield McpServerApp(mock_config), mock_pipeline, mock_handler
 
 
 class TestMcpServerProtocol:
+    @pytest.mark.asyncio
+    async def test_list_tools_does_not_initialize_backend(self, mock_config):
+        with (
+            patch("ate_rag_kb.mcp.server.RetrievalPipeline") as mock_pipeline_cls,
+            patch("ate_rag_kb.mcp.server.build_retrieval_coordinator") as mock_build_coordinator,
+            patch("ate_rag_kb.mcp.server.McpToolHandler") as mock_handler_cls,
+        ):
+            mcp_app = McpServerApp(mock_config)
+            from mcp import types
+
+            list_tools_handler = mcp_app._server.request_handlers[types.ListToolsRequest]
+            result = await list_tools_handler(None)
+
+            assert result is not None
+            mock_pipeline_cls.assert_not_called()
+            mock_build_coordinator.assert_not_called()
+            mock_handler_cls.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_list_tools_returns_all_tools(self, app):
         mcp_app, _pipeline, _handler = app
@@ -67,6 +89,50 @@ class TestMcpServerProtocol:
 
         handler.handle_search.assert_awaited_once_with({"query": "test"})
         assert len(result.root.content) == 1
+
+    @pytest.mark.asyncio
+    async def test_backend_initialized_once_for_multiple_tool_calls(self, mock_config):
+        with (
+            patch("ate_rag_kb.mcp.server.RetrievalPipeline") as mock_pipeline_cls,
+            patch("ate_rag_kb.mcp.server.build_retrieval_coordinator") as mock_build_coordinator,
+            patch("ate_rag_kb.mcp.server.McpToolHandler") as mock_handler_cls,
+        ):
+            mcp_app = McpServerApp(mock_config)
+            mock_pipeline = AsyncMock()
+            mock_pipeline_cls.return_value = mock_pipeline
+            mock_coordinator = object()
+            mock_build_coordinator.return_value = mock_coordinator
+            mock_handler = AsyncMock()
+            mock_handler.handle_status = AsyncMock(
+                return_value=AsyncMock(model_dump_json=lambda indent: '{"status": "ok"}')
+            )
+            mock_handler.handle_search = AsyncMock(
+                return_value=AsyncMock(model_dump_json=lambda indent: '{"query": "test"}')
+            )
+            mock_handler_cls.return_value = mock_handler
+
+            from mcp import types
+
+            call_tool_handler = mcp_app._server.request_handlers[types.CallToolRequest]
+            status_req = types.CallToolRequest(
+                params=types.CallToolRequestParams(name="ate_kb.status", arguments={})
+            )
+            search_req = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="ate_kb.search",
+                    arguments={"query": "test"},
+                )
+            )
+
+            await call_tool_handler(status_req)
+            await call_tool_handler(search_req)
+
+            mock_pipeline_cls.assert_called_once_with(mock_config)
+            mock_build_coordinator.assert_called_once_with(mock_config, mock_pipeline)
+            mock_handler_cls.assert_called_once_with(
+                mock_pipeline,
+                coordinator=mock_coordinator,
+            )
 
     @pytest.mark.asyncio
     async def test_call_tool_retrieve(self, app):

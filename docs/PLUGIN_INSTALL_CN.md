@@ -21,12 +21,16 @@
 
 ## 快速设置（推荐）
 
-运行自动安装程序，为所有检测到的 AI CLI 工具配置 MCP server，并安装托管的
-ATE KB Routing policy：
+自动安装程序会为**读取外部 MCP 配置文件的工具——Claude Code、Cursor 和
+Codex**配置 MCP server，并安装托管的 ATE KB Routing policy：
 
 ```bash
 uv run python scripts/install_mcp.py --install-agent-policy
 ```
+
+> Gemini CLI 和 OpenCode **不**由该脚本处理，它们通过各自的原生机制接入 MCP：
+> Gemini 在 `gemini extensions install` 时从 `gemini-extension.json` 的
+> `mcpServers` 读取；OpenCode 通过其插件管理器安装（见 `.opencode/INSTALL.md`）。
 
 先干跑查看将要修改的内容：
 
@@ -182,7 +186,7 @@ gemini extensions install https://github.com/WalterLuo/ate-rag-kb.git
 gemini extensions update ate-rag-kb
 ```
 
-Gemini CLI 读取仓库根目录的 `gemini-extension.json`，该文件指向 `GEMINI.md` 作为上下文文件。无需额外的 MCP 配置 — Gemini 通过上下文指令了解何时调用工具。
+Gemini CLI 读取仓库根目录的 `gemini-extension.json`。该清单在 `mcpServers` 下声明了 `ate-kb` MCP 服务器（通过 `uv run ... mcp` 启动），并指向 `GEMINI.md` 作为上下文文件。路径使用 `${extensionPath}` 变量，使扩展可在不同机器间移植。安装扩展时会自动接入 MCP 服务器，无需手动编辑 `mcpServers`。
 
 ---
 
@@ -240,7 +244,7 @@ droid plugin install ate-rag-kb@ate-rag-kb
 | Codex | `.codex-plugin/plugin.json` |
 | Gemini CLI | `gemini-extension.json`, `GEMINI.md` |
 | OpenCode | `.opencode/INSTALL.md` |
-| 所有 MCP 工具 | `scripts/install_mcp.py` |
+| Claude / Cursor / Codex MCP 安装器 | `scripts/install_mcp.py` |
 
 ## 故障排查
 

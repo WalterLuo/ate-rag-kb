@@ -81,6 +81,17 @@ def test_mcp_config_uses_absolute_project_path_and_config_path(tmp_path: Path) -
     assert config["env"]["CONFIG_PATH"] == str(project_root / "configs" / "config.yaml")
 
 
+def test_mcp_config_pins_retrieval_to_cpu(tmp_path: Path) -> None:
+    installer = load_installer()
+    project_root = tmp_path / "ate-rag-kb"
+    project_root.mkdir()
+
+    config = installer.build_mcp_server_config(project_root)
+
+    assert config["env"]["ATE_KB_QUERY_DEVICE"] == "cpu"
+    assert config["env"]["ATE_KB_RERANKER_DEVICE"] == "cpu"
+
+
 def test_validate_plugin_install_script_passes() -> None:
     result = subprocess.run(
         [sys.executable, str(PROJECT_ROOT / "scripts" / "validate_plugin_install.py")],

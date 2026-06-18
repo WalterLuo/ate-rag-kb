@@ -6,6 +6,7 @@ OpenClaw, Codex, and Cursor.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -63,10 +64,34 @@ class McpServerApp:
     """MCP server application with registered tool handlers."""
 
     def __init__(self, config: Config) -> None:
-        self.pipeline = RetrievalPipeline(config)
-        self.coordinator = build_retrieval_coordinator(config, self.pipeline)
-        self.handler = McpToolHandler(self.pipeline, coordinator=self.coordinator)
+        self.config = config
+        self.pipeline: RetrievalPipeline | None = None
+        self.coordinator: Any | None = None
+        self.handler: McpToolHandler | None = None
+        self._backend_lock = asyncio.Lock()
         self._server: Server = self._create_server()
+
+    def _build_handler(self) -> McpToolHandler:
+        logger.info("Initializing ATE KB retrieval backend")
+        pipeline = RetrievalPipeline(self.config)
+        coordinator = build_retrieval_coordinator(self.config, pipeline)
+        handler = McpToolHandler(pipeline, coordinator=coordinator)
+        self.pipeline = pipeline
+        self.coordinator = coordinator
+        self.handler = handler
+        return handler
+
+    async def _get_handler(self) -> McpToolHandler:
+        if self.handler is not None:
+            return self.handler
+
+        async with self._backend_lock:
+            if self.handler is None:
+                await asyncio.to_thread(self._build_handler)
+
+            if self.handler is None:
+                raise RuntimeError("ATE KB retrieval backend failed to initialize")
+            return self.handler
 
     def _create_server(self) -> Server:
         from mcp import types
@@ -96,18 +121,28 @@ class McpServerApp:
 
             try:
                 result: BaseModel
+                if name not in TOOL_SCHEMAS:
+                    error_payload = _build_error_response(
+                        f"Unknown tool: {name}",
+                        "Use ate_kb.search, ate_kb.retrieve, ate_kb.ask, "
+                        "ate_kb.related, ate_kb.get_document, or ate_kb.status",
+                    )
+                    return [types.TextContent(type="text", text=json.dumps(error_payload, indent=2))]
+
+                handler = await self._get_handler()
+
                 if name == "ate_kb.search":
-                    result = await self.handler.handle_search(args)
+                    result = await handler.handle_search(args)
                 elif name == "ate_kb.retrieve":
-                    result = await self.handler.handle_retrieve(args)
+                    result = await handler.handle_retrieve(args)
                 elif name == "ate_kb.ask":
-                    result = await self.handler.handle_ask(args)
+                    result = await handler.handle_ask(args)
                 elif name == "ate_kb.related":
-                    result = await self.handler.handle_related(args)
+                    result = await handler.handle_related(args)
                 elif name == "ate_kb.get_document":
-                    result = await self.handler.handle_get_document(args)
+                    result = await handler.handle_get_document(args)
                 elif name == "ate_kb.status":
-                    result = await self.handler.handle_status(args)
+                    result = await handler.handle_status(args)
                 else:
                     error_payload = _build_error_response(
                         f"Unknown tool: {name}",
